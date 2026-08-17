@@ -47,6 +47,7 @@ import {
   Undo2,
   UserCheck,
   UserPlus,
+  UserRound,
   Users,
   UserX,
   Wallet,
@@ -422,6 +423,12 @@ export const NAV_SECTIONS: NavSection[] = [
     id: "settings",
     title: "Settings",
     items: [
+      {
+        title: "My Profile",
+        href: "/settings/profile",
+        icon: UserRound,
+        description: "Your personal account details.",
+      },
       {
         title: "Organization",
         href: "/settings/organization",

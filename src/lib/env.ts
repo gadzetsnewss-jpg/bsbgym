@@ -1,11 +1,13 @@
 /**
  * Centralized environment variable access.
  *
- * Phase 0 runs on mock data; these values are read lazily and never used yet.
- * Phase 1 will read the real Supabase project values from these variables.
+ * Phase 3 uses these values for Supabase Auth and the organization database.
+ * When no credentials are configured the app falls back to preview mode
+ * (unauthenticated, no data) so the foundation still builds and runs.
  *
  * IMPORTANT: Only `NEXT_PUBLIC_*` variables are safe to reference in client
- * components. Server-only values live behind the `server()` accessor.
+ * components. Server-only values live behind the `serverEnv` accessor and must
+ * never be imported from a client component.
  */
 
 const readEnv = (name: string): string | undefined => {
