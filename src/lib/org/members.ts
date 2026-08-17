@@ -8,6 +8,7 @@
  */
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
+import { friendlyMessage } from "@/lib/errors";
 import type { UserStatus, InvitationStatus } from "@/lib/supabase/types";
 
 export type OrgResult<T = undefined> =
@@ -55,6 +56,8 @@ export interface RoleOption {
   name: string;
   slug: string;
   description: string | null;
+  isSystem: boolean;
+  isActive: boolean;
 }
 
 export async function fetchOrgRoles(organizationId: string): Promise<OrgResult<RoleOption[]>> {
@@ -63,11 +66,144 @@ export async function fetchOrgRoles(organizationId: string): Promise<OrgResult<R
 
   const { data, error } = await supabase
     .from("roles")
-    .select("id, name, slug, description")
+    .select("id, name, slug, description, is_system, is_active")
     .eq("organization_id", organizationId)
     .order("name");
-  if (error) return { data: null, error: errorOf(error) };
-  return { data, error: null };
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  const rows: RoleOption[] = (data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    description: row.description,
+    isSystem: row.is_system,
+    isActive: row.is_active,
+  }));
+  return { data: rows, error: null };
+}
+
+/** Role plus its full permission set - used by the role manager. */
+export interface RoleWithPermissions extends RoleOption {
+  permissions: string[];
+  memberCount: number;
+}
+
+export async function fetchRolesWithPermissions(
+  organizationId: string,
+): Promise<OrgResult<RoleWithPermissions[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const [rolesRes, permsRes, membersRes] = await Promise.all([
+    supabase
+      .from("roles")
+      .select("id, name, slug, description, is_system, is_active")
+      .eq("organization_id", organizationId)
+      .order("name"),
+    supabase
+      .from("role_permissions")
+      .select("role_id, permission")
+      .eq("organization_id", organizationId),
+    supabase
+      .from("organization_members")
+      .select("role_id, status")
+      .eq("organization_id", organizationId)
+      .eq("status", "active"),
+  ]);
+
+  if (rolesRes.error) return { data: null, error: { message: friendlyMessage(rolesRes.error) } };
+  if (permsRes.error) return { data: null, error: { message: friendlyMessage(permsRes.error) } };
+  if (membersRes.error) return { data: null, error: { message: friendlyMessage(membersRes.error) } };
+
+  const permsByRole = new Map<string, string[]>();
+  for (const row of permsRes.data ?? []) {
+    const list = permsByRole.get(row.role_id) ?? [];
+    list.push(row.permission);
+    permsByRole.set(row.role_id, list);
+  }
+  const memberCountByRole = new Map<string, number>();
+  for (const row of membersRes.data ?? []) {
+    memberCountByRole.set(row.role_id, (memberCountByRole.get(row.role_id) ?? 0) + 1);
+  }
+
+  const roles: RoleWithPermissions[] = (rolesRes.data ?? []).map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    description: row.description,
+    isSystem: row.is_system,
+    isActive: row.is_active,
+    permissions: permsByRole.get(row.id) ?? [],
+    memberCount: memberCountByRole.get(row.id) ?? 0,
+  }));
+
+  return { data: roles, error: null };
+}
+
+export interface CreateRoleInput {
+  organizationId: string;
+  name: string;
+  slug: string;
+  description?: string | null;
+  permissions?: string[];
+}
+
+export async function createRole(input: CreateRoleInput): Promise<OrgResult<{ id: string }>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase.rpc("create_role", {
+    p_org_id: input.organizationId,
+    p_name: input.name,
+    p_slug: input.slug,
+    p_description: input.description ?? null,
+    p_permissions: input.permissions ?? [],
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: { id: data as unknown as string }, error: null };
+}
+
+export async function updateRole(
+  roleId: string,
+  name: string,
+  description?: string | null,
+): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { error } = await supabase.rpc("update_role", {
+    p_role_id: roleId,
+    p_name: name,
+    p_description: description ?? null,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function setRolePermissions(
+  roleId: string,
+  permissions: string[],
+): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { error } = await supabase.rpc("set_role_permissions", {
+    p_role_id: roleId,
+    p_permissions: permissions,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function setRoleStatus(roleId: string, active: boolean): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { error } = await supabase.rpc("set_role_status", {
+    p_role_id: roleId,
+    p_active: active,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
 }
 
 export interface OrgBranchOption {
@@ -347,4 +483,63 @@ export async function acceptInvitation(token: string): Promise<OrgResult<AcceptI
   const { data, error } = await supabase.rpc("accept_invitation", { p_token: token });
   if (error) return { data: null, error: errorOf(error) };
   return { data: data as unknown as AcceptInvitationResult, error: null };
+}
+
+/* ---------------------------------------------------------------------------
+   Audit log
+   --------------------------------------------------------------------------- */
+
+export interface AuditLogRow {
+  id: string;
+  action: string;
+  targetType: string;
+  targetId: string | null;
+  actorName: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+const ACTOR_NAME_FIELDS = "id, first_name, last_name, email";
+
+export async function fetchAuditLogs(
+  organizationId: string,
+  limit = 100,
+): Promise<OrgResult<AuditLogRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select(`id, action, target_type, target_id, metadata, created_at, profiles(${ACTOR_NAME_FIELDS})`)
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+
+  const rows: AuditLogRow[] = (data ?? []).map((row) => {
+    const profile = row.profiles as unknown as {
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+    } | null;
+    const firstName = profile?.first_name ?? "";
+    const lastName = profile?.last_name ?? "";
+    const actorName = [firstName, lastName].filter(Boolean).join(" ") || profile?.email || null;
+
+    return {
+      id: row.id,
+      action: row.action,
+      targetType: row.target_type,
+      targetId: row.target_id,
+      actorName,
+      metadata:
+        typeof row.metadata === "object" && row.metadata !== null
+          ? (row.metadata as Record<string, unknown>)
+          : {},
+      createdAt: row.created_at,
+    };
+  });
+
+  return { data: rows, error: null };
 }

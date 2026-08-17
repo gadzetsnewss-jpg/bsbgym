@@ -9,6 +9,12 @@ export interface NavItem {
   badge?: string;
   /** Short copy used by page headers / placeholder pages. */
   description?: string;
+  /**
+   * Permission required to see this item. UI-gating only - RLS and the
+   * server-side guards remain the actual security boundary. Omit for items
+   * every signed-in member may see (e.g. profile, dashboard overview).
+   */
+  permission?: string;
 }
 
 /** A group of navigation entries shown under one sidebar heading. */

@@ -19,8 +19,9 @@ and complete a 5-step wizard before getting access to the app.
 RPC. In a single transaction the database:
 
 1. Creates the organization (with an auto UUID `id` and `created_by = auth.uid()`).
-2. Seeds the four system roles (`owner`, `admin`, `manager`, `staff`) and their
-   `role_permissions`.
+2. Seeds the seven default roles (`owner`, `admin`, `manager`, `staff` as
+   protected system roles plus configurable `receptionist`, `trainer`,
+   `accountant`) and their granular `role_permissions`.
 3. Creates the owner membership (`access_all_branches = true`, status `active`).
 4. Creates the first branch with the user's chosen code (normalized to
    uppercase) and grants the owner all-branch access.

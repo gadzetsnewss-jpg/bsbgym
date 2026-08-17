@@ -11,7 +11,14 @@
 
 import * as React from "react";
 import type { AppContextData } from "@/lib/auth/types";
-import { hasPermission, isAdminRole, isOwnerRole } from "@/lib/auth/permissions";
+import {
+  hasPermission,
+  hasAnyPermission,
+  hasAllPermissions,
+  canAccessBranch,
+  isAdminRole,
+  isOwnerRole,
+} from "@/lib/auth/permissions";
 
 const BRANCH_COOKIE = "bsb_branch";
 
@@ -42,6 +49,12 @@ interface OrgContextValue {
   setBranch: (branchId: string) => void;
   /** Permission gate helper for UI visibility. */
   can: (permission: string) => boolean;
+  /** True when the caller holds at least one of the listed permissions. */
+  canAny: (permissions: readonly string[]) => boolean;
+  /** True when the caller holds every listed permission. */
+  canAll: (permissions: readonly string[]) => boolean;
+  /** True when the caller may operate in the given branch (UI mirror of RLS). */
+  canAccessBranch: (branchId: string) => boolean;
   isAdmin: boolean;
   isOwner: boolean;
   /** Updates the cached profile after an edit (e.g. profile page). */
@@ -104,6 +117,16 @@ export function OrgProvider({ initial, children }: OrgProviderProps) {
         writeBranchCookie(branchId);
       },
       can: (permission) => hasPermission(permissions, permission),
+      canAny: (required) => hasAnyPermission(permissions, required),
+      canAll: (required) => hasAllPermissions(permissions, required),
+      canAccessBranch: (branchId) =>
+        canAccessBranch(
+          {
+            accessAllBranches: context?.member.accessAllBranches ?? false,
+          },
+          (context?.branches ?? []).map((branch) => branch.id),
+          branchId,
+        ),
       isAdmin: isAdminRole(context?.member.roleSlug),
       isOwner: isOwnerRole(context?.member.roleSlug),
       updateProfileLocal: (profile) => {

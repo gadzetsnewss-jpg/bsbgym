@@ -192,6 +192,7 @@ export interface Database {
           slug: string;
           description: string | null;
           is_system: boolean;
+          is_active: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -202,6 +203,7 @@ export interface Database {
           slug: string;
           description: string | null;
           is_system: boolean;
+          is_active: boolean;
         }>;
         Update: Partial<{
           id: string;
@@ -210,6 +212,7 @@ export interface Database {
           slug: string;
           description: string | null;
           is_system: boolean;
+          is_active: boolean;
         }>;
         Relationships: [
           {
@@ -485,6 +488,45 @@ export interface Database {
           },
         ];
       };
+      audit_logs: {
+        Row: {
+          id: string;
+          organization_id: string;
+          actor_id: string | null;
+          action: string;
+          target_type: string;
+          target_id: string | null;
+          metadata: Json;
+          created_at: string;
+        };
+        Insert: Partial<{
+          id: string;
+          organization_id: string;
+          actor_id: string | null;
+          action: string;
+          target_type: string;
+          target_id: string | null;
+          metadata: Json;
+        }>;
+        Update: Partial<{
+          id: string;
+          organization_id: string;
+          actor_id: string | null;
+          action: string;
+          target_type: string;
+          target_id: string | null;
+          metadata: Json;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
@@ -565,6 +607,38 @@ export interface Database {
           p_member_id: string;
           p_branch_ids?: string[] | null;
           p_all_branches?: boolean;
+        };
+        Returns: void;
+      };
+      create_role: {
+        Args: {
+          p_org_id: string;
+          p_name: string;
+          p_slug: string;
+          p_description?: string | null;
+          p_permissions?: string[];
+        };
+        Returns: string;
+      };
+      update_role: {
+        Args: {
+          p_role_id: string;
+          p_name: string;
+          p_description?: string | null;
+        };
+        Returns: void;
+      };
+      set_role_permissions: {
+        Args: {
+          p_role_id: string;
+          p_permissions?: string[];
+        };
+        Returns: void;
+      };
+      set_role_status: {
+        Args: {
+          p_role_id: string;
+          p_active: boolean;
         };
         Returns: void;
       };

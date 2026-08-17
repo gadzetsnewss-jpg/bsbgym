@@ -1,5 +1,10 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { RolesManagerPanel } from "@/components/settings/roles-manager";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/settings/permissions" />;
+export const metadata: Metadata = {
+  title: "Permissions",
+};
+
+export default function PermissionsPage() {
+  return <RolesManagerPanel />;
 }

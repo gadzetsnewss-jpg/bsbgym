@@ -63,7 +63,15 @@ request and returns the profile, active organization, membership role,
 permissions and authorized branches. It is seeded into the client providers
 (`AuthProvider` + `OrgProvider`), so pages never re-fetch identity data.
 `useOrganization()` exposes `profile`, `organization`, `member`, `branches`,
-`currentBranch`, `can(permission)`, `isAdmin` and `isOwner`.
+`currentBranch`, `can(permission)`, `canAny`, `canAll`, `canAccessBranch`,
+`isAdmin` and `isOwner`.
+
+### Permission-aware navigation
+
+Sidebar items declare an optional `permission` in `src/config/navigation.ts`
+and are hidden when the member's role does not grant it. This is UI-only -
+RLS and the server-side guards are the actual security boundary. See
+`docs/RBAC.md`.
 
 ## Account status rules
 
@@ -86,4 +94,13 @@ Invitations are created via the `create_invitation` RPC which returns a raw
 one-time token. Email delivery is not wired up yet, so the invite dialog shows
 a copyable link (`/accept-invitation?token=<raw>`). Tokens are stored only as
 SHA-256 hashes (`invitations.token_hash`) and the raw column is REVOKEd from
-`anon`/`authenticated`. See `docs/ARCHITECTURE.md` for the token lifecycle.
+`anon`/`authenticated`. Deactivated roles cannot be invited or assigned; the
+owner role can only be assigned by the owner. See `docs/ARCHITECTURE.md` for
+the token lifecycle.
+
+## Error handling
+
+RPC failures are mapped to friendly, typed errors by `src/lib/errors.ts`
+(Session Expired, Forbidden, Not Found, Invalid/Expired Invitation, Duplicate
+User, Database, Network) before reaching the UI. Raw PostgreSQL errors are
+never surfaced. See `docs/SECURITY.md`.

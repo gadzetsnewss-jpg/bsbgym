@@ -98,6 +98,9 @@ export default function UsersRolesPanel() {
   const canManageUsers = can("users.manage");
   const canInvite = can("invites.send");
 
+  const activeRoles = roles.filter((role) => role.isActive);
+  const assignableRoles = activeRoles.filter((role) => role.slug !== "owner");
+
   const load = React.useCallback(async () => {
     if (!orgId) {
       setLoading(false);
@@ -475,7 +478,7 @@ export default function UsersRolesPanel() {
           onClose={() => setInviteOpen(false)}
           onCreated={() => void load()}
           organizationId={orgId}
-          roles={roles}
+          roles={assignableRoles}
           branches={branches}
         />
       )}
@@ -508,7 +511,7 @@ export default function UsersRolesPanel() {
             hint="This determines what the member can see and do."
           >
             <Select
-              options={roles.map((role) => ({ value: role.id, label: role.name }))}
+              options={assignableRoles.map((role) => ({ value: role.id, label: role.name }))}
               value={editRoleId}
               onChange={(event) => setEditRoleId(event.target.value)}
             />

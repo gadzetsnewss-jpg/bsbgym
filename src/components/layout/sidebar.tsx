@@ -8,7 +8,8 @@ import { cn } from "@/lib/utils";
 import { NAV_SECTIONS } from "@/config/navigation";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { Logo } from "@/components/layout/logo";
-import type { NavItem } from "@/types/navigation";
+import { useOrganization } from "@/components/auth/org-provider";
+import type { NavItem, NavSection } from "@/types/navigation";
 
 function isActive(href: string, pathname: string): boolean {
   return href === pathname;
@@ -71,9 +72,25 @@ interface SidebarNavProps {
 }
 
 function SidebarNav({ collapsed, pathname, onNavigate }: SidebarNavProps) {
+  const { can, context } = useOrganization();
+
+  // Permission-aware navigation: items with a `permission` are hidden when the
+  // member's role does not grant it. UI-only gating - RLS and the server-side
+  // guards remain the actual security boundary. In preview mode there is no
+  // real context, so the full navigation is shown for exploration.
+  const sections = React.useMemo<NavSection[]>(() => {
+    const preview = context === null;
+    return NAV_SECTIONS.map((section) => ({
+      ...section,
+      items: section.items.filter(
+        (item) => preview || !item.permission || can(item.permission),
+      ),
+    })).filter((section) => section.items.length > 0);
+  }, [can, context]);
+
   return (
     <nav aria-label="Main navigation" className="flex-1 overflow-y-auto px-3 pb-4">
-      {NAV_SECTIONS.map((section) => (
+      {sections.map((section) => (
         <div key={section.id} className="mt-4 first:mt-0">
           {!collapsed ? (
             <p className="px-3 pb-1.5 text-[11px] font-semibold tracking-wider text-primary-100/40 uppercase">
