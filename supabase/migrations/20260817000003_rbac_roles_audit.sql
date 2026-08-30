@@ -729,7 +729,7 @@ $$;
 grant execute on function public.create_organization(
   text, text, text, text, text, text, text, text, text, text, text, text,
   text, text, text, text, text, text, text, text, text, text, text, text,
-  text, text, text
+  text, text, text, text
 ) to authenticated;
 
 -- ---------------------------------------------------------------------------

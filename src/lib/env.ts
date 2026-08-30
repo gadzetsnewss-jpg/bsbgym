@@ -5,20 +5,24 @@
  * When no credentials are configured the app falls back to preview mode
  * (unauthenticated, no data) so the foundation still builds and runs.
  *
- * IMPORTANT: Only `NEXT_PUBLIC_*` variables are safe to reference in client
- * components. Server-only values live behind the `serverEnv` accessor and must
- * never be imported from a client component.
+ * IMPORTANT: `NEXT_PUBLIC_*` variables must be referenced statically
+ * (`process.env.NEXT_PUBLIC_X`) so Next.js can inline them into the client
+ * bundle. Dynamic access (`process.env[name]`) is not inlined and would read
+ * as `undefined` in the browser, which breaks the "is Supabase configured"
+ * check on the client. Server-only values live behind the `serverEnv`
+ * accessor and must never be imported from a client component.
  */
 
+/** Server-only values (read dynamically; never inlined into the client). */
 const readEnv = (name: string): string | undefined => {
   if (typeof process === "undefined") return undefined;
   return process.env[name];
 };
 
 export const env = {
-  appName: readEnv("NEXT_PUBLIC_APP_NAME") || "BSB FitForge",
-  supabaseUrl: readEnv("NEXT_PUBLIC_SUPABASE_URL") || undefined,
-  supabaseAnonKey: readEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY") || undefined,
+  appName: process.env.NEXT_PUBLIC_APP_NAME || "BSB FitForge",
+  supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || undefined,
+  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || undefined,
 } as const;
 
 /** Server-only environment values. Never import from a client component. */

@@ -30,14 +30,22 @@ Native Android apps (Kotlin + Jetpack Compose) and AI features are planned for l
 # Install dependencies
 npm install
 
-# Copy env template (values only needed in Phase 1)
+# Copy env template and fill in your Supabase project credentials
 cp .env.example .env.local
+
+# Apply the database schema (requires supabase CLI, linked to your project)
+supabase link --project-ref <your-project-ref>
+supabase db push
 
 # Start the dev server
 npm run dev
 ```
 
 Open http://localhost:3000 — the app redirects to the `/dashboard` route.
+
+New sign-ups land on `/onboarding` (5-step wizard) and create their
+organization. Note: email confirmation is enabled by default, so a new account
+must confirm its email before it can sign in.
 
 ### Scripts
 

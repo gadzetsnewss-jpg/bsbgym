@@ -65,16 +65,26 @@ Supabase project is available.
 
 ### Applying migrations
 
-The migrations cannot be executed in this environment (no Supabase project /
-CLI / Docker). To go live:
+The migrations apply cleanly to a fresh Supabase project with `supabase db push`
+(tested against a live project). They have been fixed for fresh application:
 
-1. Create a Supabase project and set `NEXT_PUBLIC_SUPABASE_URL` /
-   `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local`.
-2. Apply `supabase/migrations/*.sql` (via `supabase db push`, the dashboard SQL
-   editor, or your CI migration runner).
+- The membership helpers (`is_org_member` / `is_org_admin` / `is_org_owner`) are
+  defined as `plpgsql` inside migration `000001` (before the RLS policies that
+  reference them) and re-created as SQL in `000002`.
+- The `profiles` org-colleagues select policy is created after
+  `organization_members` exists (same migration).
+- The `grant execute` signatures for `create_organization` match the 28-parameter
+  function in both `000002` and `000003`.
 
-Until then the app runs in preview mode: every Supabase helper returns `null`
-when `isSupabaseConfigured` is false, so the Phase 0 mock UI still works.
+To apply against a project:
+
+1. Set `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` in
+   `.env.local`.
+2. `supabase link --project-ref <ref>` then `supabase db push`.
+
+With credentials configured, the app runs fully connected; without them it falls
+back to preview mode (every Supabase helper returns `null` when
+`isSupabaseConfigured` is false), so the Phase 0 mock UI still works.
 
 ## Invitation token lifecycle
 

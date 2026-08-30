@@ -66,6 +66,71 @@ create policy "business_types readable by authenticated users"
   on public.business_types for select to authenticated using (true);
 
 -- =============================================================================
+-- Membership helper functions
+-- =============================================================================
+-- Used by the RLS policies below. Defined as plpgsql here so the policy
+-- expressions resolve at apply time; the authoritative SQL definitions are
+-- re-created by migration 20260817000002_auth_org_rpcs.sql.
+
+create or replace function public.is_org_member(target_org uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  return exists (
+    select 1
+    from public.organization_members m
+    where m.organization_id = target_org
+      and m.user_id = auth.uid()
+      and m.status = 'active'
+  );
+end;
+$$;
+
+create or replace function public.is_org_admin(target_org uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  return exists (
+    select 1
+    from public.organization_members m
+    join public.roles r on r.id = m.role_id
+    where m.organization_id = target_org
+      and m.user_id = auth.uid()
+      and m.status = 'active'
+      and r.slug in ('owner', 'admin')
+  );
+end;
+$$;
+
+create or replace function public.is_org_owner(target_org uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+begin
+  return exists (
+    select 1
+    from public.organization_members m
+    join public.roles r on r.id = m.role_id
+    where m.organization_id = target_org
+      and m.user_id = auth.uid()
+      and m.status = 'active'
+      and r.slug = 'owner'
+  );
+end;
+$$;
+
+-- =============================================================================
 -- Organizations
 -- =============================================================================
 
@@ -230,19 +295,6 @@ create policy "users can view their own profile"
   on public.profiles for select
   using (auth.uid() = id);
 
-create policy "users can view profiles of org colleagues"
-  on public.profiles for select
-  using (
-    exists (
-      select 1
-      from public.organization_members mine
-      join public.organization_members theirs on theirs.organization_id = mine.organization_id
-      where mine.user_id = auth.uid()
-        and mine.status = 'active'
-        and theirs.user_id = public.profiles.id
-    )
-  );
-
 create policy "users can update their own profile"
   on public.profiles for update
   using (auth.uid() = id);
@@ -274,6 +326,19 @@ alter table public.organization_members enable row level security;
 create policy "org members can view members of their organization"
   on public.organization_members for select
   using (public.is_org_member(organization_id));
+
+create policy "users can view profiles of org colleagues"
+  on public.profiles for select
+  using (
+    exists (
+      select 1
+      from public.organization_members mine
+      join public.organization_members theirs on theirs.organization_id = mine.organization_id
+      where mine.user_id = auth.uid()
+        and mine.status = 'active'
+        and theirs.user_id = public.profiles.id
+    )
+  );
 
 -- Inserts/updates/deletes go exclusively through RPCs (create_organization,
 -- accept_invitation, update_member_role, set_member_status,
