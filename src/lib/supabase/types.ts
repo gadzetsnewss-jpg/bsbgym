@@ -49,6 +49,8 @@ export interface Database {
         Row: {
           id: string;
           name: string;
+          slug: string;
+          gstin: string | null;
           legal_name: string | null;
           business_type: string | null;
           email: string | null;
@@ -73,6 +75,8 @@ export interface Database {
         Insert: Partial<{
           id: string;
           name: string;
+          slug?: string;
+          gstin?: string | null;
           legal_name: string | null;
           business_type: string | null;
           email: string | null;
@@ -95,6 +99,8 @@ export interface Database {
         Update: Partial<{
           id: string;
           name: string;
+          slug?: string;
+          gstin?: string | null;
           legal_name: string | null;
           business_type: string | null;
           email: string | null;
@@ -129,6 +135,7 @@ export interface Database {
           organization_id: string;
           name: string;
           code: string;
+          gstin: string | null;
           phone: string | null;
           email: string | null;
           address_line1: string | null;
@@ -147,6 +154,7 @@ export interface Database {
           organization_id: string;
           name: string;
           code: string;
+          gstin?: string | null;
           phone: string | null;
           email: string | null;
           address_line1: string | null;
@@ -163,6 +171,7 @@ export interface Database {
           organization_id: string;
           name: string;
           code: string;
+          gstin?: string | null;
           phone: string | null;
           email: string | null;
           address_line1: string | null;
@@ -265,9 +274,13 @@ export interface Database {
           id: string;
           first_name: string;
           last_name: string;
+          full_name: string | null;
           email: string | null;
           phone: string | null;
           avatar_url: string | null;
+          status: UserStatus;
+          org_id: string | null;
+          branch_id: string | null;
           preferences: Json;
           created_at: string;
           updated_at: string;
@@ -279,6 +292,9 @@ export interface Database {
           email: string | null;
           phone: string | null;
           avatar_url: string | null;
+          status?: UserStatus;
+          org_id?: string | null;
+          branch_id?: string | null;
           preferences: Json;
         }>;
         Update: Partial<{
@@ -288,9 +304,27 @@ export interface Database {
           email: string | null;
           phone: string | null;
           avatar_url: string | null;
+          status?: UserStatus;
+          org_id?: string | null;
+          branch_id?: string | null;
           preferences: Json;
         }>;
-        Relationships: [];
+        Relationships: [
+          {
+            foreignKeyName: "profiles_org_id_fkey";
+            columns: ["org_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "profiles_branch_id_fkey";
+            columns: ["branch_id"];
+            isOneToOne: false;
+            referencedRelation: "branches";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       organization_members: {
         Row: {
@@ -527,9 +561,136 @@ export interface Database {
           },
         ];
       };
+      organization_settings: {
+        Row: {
+          id: string;
+          organization_id: string;
+          setting_key: string;
+          setting_value: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<{
+          id: string;
+          organization_id: string;
+          setting_key: string;
+          setting_value: Json;
+        }>;
+        Update: Partial<{
+          id: string;
+          organization_id: string;
+          setting_key: string;
+          setting_value: Json;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "organization_settings_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      branch_settings: {
+        Row: {
+          id: string;
+          organization_id: string;
+          branch_id: string;
+          setting_key: string;
+          setting_value: Json;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<{
+          id: string;
+          organization_id: string;
+          branch_id: string;
+          setting_key: string;
+          setting_value: Json;
+        }>;
+        Update: Partial<{
+          id: string;
+          organization_id: string;
+          branch_id: string;
+          setting_key: string;
+          setting_value: Json;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "branch_settings_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "branch_settings_branch_org_fkey";
+            columns: ["organization_id", "branch_id"];
+            isOneToOne: false;
+            referencedRelation: "branches";
+            referencedColumns: ["organization_id", "id"];
+          },
+        ];
+      };
+      organization_subscriptions: {
+        Row: {
+          id: string;
+          organization_id: string;
+          plan_name: string;
+          status: string;
+          start_date: string | null;
+          end_date: string | null;
+          trial_start: string | null;
+          trial_end: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<{
+          id: string;
+          organization_id: string;
+          plan_name?: string;
+          status?: string;
+          start_date?: string | null;
+          end_date?: string | null;
+          trial_start?: string | null;
+          trial_end?: string | null;
+        }>;
+        Update: Partial<{
+          id: string;
+          organization_id: string;
+          plan_name: string;
+          status: string;
+          start_date: string | null;
+          end_date: string | null;
+          trial_start: string | null;
+          trial_end: string | null;
+        }>;
+        Relationships: [
+          {
+            foreignKeyName: "organization_subscriptions_organization_id_fkey";
+            columns: ["organization_id"];
+            isOneToOne: false;
+            referencedRelation: "organizations";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: {
+      current_user_org_id: {
+        Args: Record<PropertyKey, never>;
+        Returns: string;
+      };
+      user_has_org_access: {
+        Args: { p_org_id: string };
+        Returns: boolean;
+      };
+      user_has_branch_access: {
+        Args: { p_branch_id: string };
+        Returns: boolean;
+      };
       is_org_member: {
         Args: { target_org: string };
         Returns: boolean;

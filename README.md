@@ -2,7 +2,12 @@
 
 Professional cloud-based **Gym Management ERP / SaaS** for fitness businesses in 2026.
 
-This repository currently contains the **Phase 0 foundation** — a clean, scalable application shell and design system that all future modules plug into without restructuring the project.
+This repository currently contains the **Phase 0 foundation** plus the
+**Phase 3 multi-tenant foundation** (Supabase Auth + RLS/RBAC, org/branch
+multi-tenancy, dynamic roles, audit logging) and the **Phase 1.1 database
+foundation** (org slug/GSTIN, profiles status, org/branch settings,
+subscriptions, tenant helper functions). Later modules build on these without
+restructuring.
 
 > **Phase 0 scope:** application shell, design system, navigation, dashboard with mock data, login-ready structure. No database, no real authentication, no billing/GST logic yet.
 
@@ -119,8 +124,8 @@ Semantic HTML, labelled controls, visible focus rings, keyboard-friendly menus/t
 
 | Phase | Focus |
 | --- | --- |
-| **0 (this)** | Application shell, design system, navigation, dashboard with mock data |
-| **1** | Supabase schema, Auth, RLS/RBAC, replace mock data with real repositories |
+| **0** | Application shell, design system, navigation, dashboard with mock data |
+| **1** | Supabase schema, Auth, RLS/RBAC, multi-tenant org/branch model (Phase 3 + Phase 1.1 foundation implemented; feature repositories still to come) |
 | **2** | Members, memberships, billing, invoices, GST, payments |
 | **3** | Attendance, trainers, fitness, classes, POS, inventory |
 | **4** | CRM, finance, reports, notifications, member portal |
