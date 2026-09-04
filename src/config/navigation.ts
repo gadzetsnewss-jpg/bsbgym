@@ -176,7 +176,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/billing/payments",
         icon: CreditCard,
         description: "Recorded payments and collections.",
-        permission: "billing.view",
+        permission: "payments.view",
       },
       {
         title: "Installments",
@@ -197,7 +197,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/billing/gst-master",
         icon: Percent,
         description: "Goods and services tax configuration.",
-        permission: "billing.view",
+        permission: "gst.view",
       },
       {
         title: "Credit Notes",
@@ -327,14 +327,14 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/pos/new-sale",
         icon: ShoppingCart,
         description: "Point-of-sale checkout.",
-        permission: "billing.create",
+        permission: "pos.create",
       },
       {
         title: "Sales",
         href: "/pos/sales",
         icon: ShoppingBag,
         description: "POS sale history.",
-        permission: "billing.view",
+        permission: "pos.view",
       },
     ],
   },
@@ -474,7 +474,7 @@ export const NAV_SECTIONS: NavSection[] = [
         href: "/settings/organization",
         icon: Building2,
         description: "Gym organization profile.",
-        permission: "settings.view",
+        permission: "organization.manage",
       },
       {
         title: "Branches",

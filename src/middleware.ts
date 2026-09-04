@@ -43,6 +43,11 @@ export async function middleware(request: NextRequest) {
     return NextResponse.next();
   }
 
+  // Expose the pathname to server components (used by the (app) layout for
+  // route-level authorization). Must be set before updateSession rebuilds the
+  // response, since that reuses the same request object.
+  request.headers.set("x-pathname", pathname);
+
   // Refresh the session cookie and learn the user.
   const client = await updateSession(request, NextResponse.next({ request }));
   const response = client?.response ?? NextResponse.next({ request });

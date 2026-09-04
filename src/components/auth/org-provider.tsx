@@ -18,6 +18,7 @@ import {
   canAccessBranch,
   isAdminRole,
   isOwnerRole,
+  hasRole,
 } from "@/lib/auth/permissions";
 
 const BRANCH_COOKIE = "bsb_branch";
@@ -55,6 +56,10 @@ interface OrgContextValue {
   canAll: (permissions: readonly string[]) => boolean;
   /** True when the caller may operate in the given branch (UI mirror of RLS). */
   canAccessBranch: (branchId: string) => boolean;
+  /** Current member's role slug (one of the seeded role slugs). */
+  roleSlug: string | null;
+  /** True when the current member's role is one of the listed slugs. */
+  hasRole: (roleSlugs: readonly string[]) => boolean;
   isAdmin: boolean;
   isOwner: boolean;
   /** Updates the cached profile after an edit (e.g. profile page). */
@@ -69,6 +74,25 @@ export function useOrganization(): OrgContextValue {
     throw new Error("useOrganization must be used within an <OrgProvider>");
   }
   return context;
+}
+
+/* ---------------------------------------------------------------------------
+   Spec-named convenience hooks (thin wrappers around useOrganization).
+   --------------------------------------------------------------------------- */
+
+/** The signed-in user's profile, or null when not authenticated. */
+export function useCurrentUser(): AppContextData["profile"] | null {
+  return useOrganization().profile;
+}
+
+/** The currently selected authorized branch, or null. */
+export function useBranch(): AppContextData["branches"][number] | null {
+  return useOrganization().currentBranch;
+}
+
+/** The current member's effective permission strings (UI gates only). */
+export function usePermissions(): string[] {
+  return useOrganization().permissions;
 }
 
 export interface OrgProviderProps {
@@ -127,6 +151,8 @@ export function OrgProvider({ initial, children }: OrgProviderProps) {
           (context?.branches ?? []).map((branch) => branch.id),
           branchId,
         ),
+      roleSlug: context?.member.roleSlug ?? null,
+      hasRole: (roleSlugs) => hasRole(context?.member.roleSlug, roleSlugs),
       isAdmin: isAdminRole(context?.member.roleSlug),
       isOwner: isOwnerRole(context?.member.roleSlug),
       updateProfileLocal: (profile) => {

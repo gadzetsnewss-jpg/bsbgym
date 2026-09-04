@@ -39,29 +39,44 @@ by the owner.
 
 ## Permission model
 
-`src/lib/auth/permissions.ts` defines the full set:
+`src/lib/auth/permissions.ts` defines the full set (56 permissions - the exact
+catalogue seeded by `seed_default_role_permissions` in migration
+`20260831000005`; a parity test keeps the two in sync):
 
 - `dashboard.view`
 - `members.view` / `create` / `update` / `delete` / `export`
-- `memberships.view` / `create` / `update`
-- `billing.view` / `create` / `refund` / `export`
-- `attendance.view` / `create`
-- `trainers.view`
-- `classes.view` / `manage`
+- `memberships.view` / `create` / `update` / `freeze` / `extend` / `transfer`
+- `billing.view` / `create` / `edit` / `refund` / `void` / `export`
+- `gst.view` / `manage`
+- `payments.view` / `create` / `refund`
+- `attendance.view` / `create` / `manage`
+- `trainers.view` / `create` / `edit` / `assign` / `reassign`
+- `classes.view` / `manage` + `bookings.manage`
+- `pos.view` / `create`
 - `inventory.view` / `manage`
 - `crm.view` / `manage`
 - `finance.view` / `manage`
 - `reports.view` / `export`
+- `staff.view` / `manage`
 - `settings.view` / `manage`
 - `users.view` / `manage`
 - `roles.view` / `manage`
 - `branches.view` / `manage`
+- `organization.manage`
 - `invites.send`
 
 > Migration `20260817000003` backfills the coarse `*.manage` permissions
 > (members/memberships/billing/attendance) into their granular equivalents and
 > deletes the coarse rows, so organizations created before the migration keep
 > an equivalent permission surface.
+>
+> Migration `20260831000005` seeds the full catalogue for the default roles:
+> owner/admin receive everything (admin except `organization.manage`),
+> manager/staff/receptionist/trainer/accountant get role-appropriate subsets.
+> Trainer is deliberately excluded from billing, GST, payments, finance,
+> reports, staff and organization management. Existing organizations are
+> backfilled insert-only (`on conflict do nothing`) so custom role edits are
+> preserved.
 
 ## Authorization helpers
 
@@ -72,12 +87,23 @@ Client-side helpers in `src/lib/auth/permissions.ts` (mirrored by the RPCs):
 | `hasPermission(permissions, p)` | Single-permission gate |
 | `hasAnyPermission(permissions, list)` | Any-of gate |
 | `hasAllPermissions(permissions, list)` | All-of gate |
+| `hasRole(member, roleSlugs)` | Role-slug gate (e.g. trainer) |
 | `canAccessBranch(member, authorized, branchId)` | Branch-level gate (UI mirror) |
 | `isOrganizationMember(member)` | Active-membership check |
 | `canGrantPermissions(caller, requested)` | Privilege-escalation guard (UI mirror) |
 
-`useOrganization()` exposes `can`, `canAny`, `canAll` and `canAccessBranch`
-for page-level gating.
+`useOrganization()` exposes `can`, `canAny`, `canAll`, `canAccessBranch`,
+`hasRole` and `roleSlug` for page-level gating.
+
+## Route-level authorization
+
+`src/config/route-permissions.ts` maps path prefixes to required permissions
+via `requiredPermissionForPath(pathname)` (longest-prefix match). The
+`(app)` layout evaluates it server-side using the `x-pathname` header set by
+the middleware and redirects unauthorized members to `/access-denied`
+(`src/components/auth/access-denied.tsx`). `/access-denied` and
+`/settings/profile` are reachable by every authenticated member. This is the
+app-level gate; RLS and the RPC guards remain the enforcement boundary.
 
 ## Role lifecycle RPCs
 
@@ -138,12 +164,22 @@ filtering is purely presentational and everything remains server-enforced.
 - `audit_logs` is select-only for org members; writes happen exclusively
   through the SECURITY DEFINER `record_audit_event` helper (not granted to
   `anon`/`authenticated`), so callers cannot forge audit entries.
+- The trainer default role is verified end-to-end to **not** reach billing
+  management, GST master, financial reports, staff management or organization
+  management - the seeds, the route gates and RLS all agree (no single source
+  of truth on the app side).
 
 ## Testing
 
 - `src/lib/auth/permissions.test.ts` - permission constants, role helpers,
-  `canGrantPermissions`, permission options.
+  `canGrantPermissions`, permission options, Phase 1.2 catalogue parity with
+  the seeded owner catalogue (56 unique).
 - `src/lib/auth/authorization.test.ts` - any/all/branch/membership/escalation
   rules.
+- `src/lib/auth/session-errors.test.ts` - spec error-message mapping
+  (bad credentials / forbidden / expired session).
+- `src/config/route-permissions.test.ts` - longest-prefix route resolution.
 - `src/lib/org/rbac-migration.test.ts` - static migration invariants
   (backfill, audit RLS, RPC guards).
+- `src/lib/org/security-migration.test.ts` - Phase 1.2 invariants (branch
+  select policy, composite FKs, seed-function ACL, crypto qualification).

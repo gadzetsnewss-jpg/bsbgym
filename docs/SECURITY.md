@@ -50,6 +50,13 @@ Every security decision is enforced at the database layer. The frontend gating
   request body cannot grant access to another branch.
 - Invitations carry their own `access_all_branches` / `invitation_branches`
   so access is granted atomically on acceptance.
+- Migration `20260831000005` (Phase 1.2) tightens the `branches` SELECT policy
+  to `is_org_member(organization_id) AND user_has_branch_access(organization_id, id)`
+  and adds **composite FKs** (`member_branches`, `invitation_branches` on
+  `(organization_id, branch_id) -> branches(organization_id, id)`) so a grant
+  row can never point at another organization's branch. The policy uses the
+  two-argument `user_has_branch_access(p_org_id, p_branch_id)` overload that
+  never self-joins `branches`, keeping `INSERT ... RETURNING` correct.
 
 ## Role & permission security
 
@@ -66,6 +73,13 @@ Every security decision is enforced at the database layer. The frontend gating
   be deactivated.
 - The organization owner can never be deactivated (`set_member_status`
   refuses).
+- **Phase 1.2**: the full 56-permission catalogue is seeded per organization by
+  `seed_default_role_permissions` (SECURITY DEFINER, execution revoked from
+  `public`/`anon`/`authenticated`); the trainer default role is excluded from
+  billing, GST, payments, finance, reports, staff and organization management.
+- **App-level gate**: `src/config/route-permissions.ts` + the `(app)` layout
+  redirect unauthorized members to `/access-denied`. Cosmetic checks use
+  `hasRole()` in addition to `hasPermission()`.
 
 ## Invitation security
 
@@ -77,6 +91,10 @@ Every security decision is enforced at the database layer. The frontend gating
 - `accept_invitation` requires the invitation be `pending`, unexpired, and the
   signed-in email match the invited email. Revoked/expired invitations can
   never be accepted.
+- **Crypto qualification fix (`000006`)**: `gen_random_bytes` and `digest` live
+  in the `extensions` schema but were called unqualified while the RPCs force
+  `search_path = public`, so the whole invite flow broke at runtime. The RPCs
+  are recreated with `extensions.`-qualified calls.
 
 ## Audit logging
 
@@ -100,6 +118,14 @@ Expired, Invalid/Expired Invitation, Duplicate User, Database Failure, Network
 Failure - before they reach the UI. **Raw PostgreSQL errors are never shown**
 to users (verified by `src/lib/errors.test.ts`).
 
+Auth errors map to the spec messages via `toAuthErrorMessage()`
+(`src/lib/auth/session.ts`, covered by `session-errors.test.ts`):
+
+- Bad credentials -> "Email or password is incorrect."
+- Forbidden area -> "You don't have permission to access this area."
+- Expired/invalid session -> "Your session has expired. Please sign in again."
+- Unknown failures fall back to a generic message - never a database error.
+
 ## Session management
 
 - Sessions live in httpOnly cookies via `@supabase/ssr`; middleware refreshes
@@ -107,12 +133,17 @@ to users (verified by `src/lib/errors.test.ts`).
 - Suspended/deactivated members are treated as unauthenticated and cannot reach
   protected resources.
 - Profile edits are restricted to the signed-in user's own `profiles` row.
+- The middleware exposes the current pathname via an `x-pathname` request
+  header so the `(app)` layout can enforce route permissions server-side and
+  redirect to `/access-denied` before rendering.
 
 ## Local development vs. production
 
-This environment has no Supabase project, so migrations/RLS cannot be executed
-here. The app runs in preview mode (`isSupabaseConfigured = false`). Before
-going live, apply the migrations and then verify with the checklist below.
+In this environment the app runs in preview mode (`isSupabaseConfigured =
+false`) when no Supabase credentials are configured. A real Supabase project
+(`xwornvqtepbliehmrisp`) has been used for live verification - all migrations
+through `20260831000006` are applied there and the checklist below has been
+run against it.
 
 ## Verification checklist (to run against a real Supabase project)
 
@@ -120,16 +151,29 @@ going live, apply the migrations and then verify with the checklist below.
    `role_permissions`, `organization_members`, `member_branches`,
    `invitations`, `invitation_branches`, `audit_logs`.
 2. **Isolation**: sign in as org A and confirm org B's rows are invisible and
-   unmodifiable through the REST API.
+   unmodifiable through the REST API. (Verified live: org B owner/staff/trainer
+   vs org A.)
 3. **Branch isolation**: a member without access to branch X cannot read or
    write X's rows, even with a forged `branch_id` in the URL/body/cookie.
+   (Verified live: org B staff sees only Head Office and is rejected on branch
+   INSERT.)
 4. **Escalation**: a non-owner cannot call `set_role_permissions` with
    permissions they do not hold, and cannot create/assign admin or owner roles.
 5. **Owner protection**: the owner cannot be deactivated, and owner/admin
    assignment is rejected for non-owners.
 6. **Invitation replay**: an accepted, revoked or expired token is rejected;
-   a token for a different email is rejected.
+   a token for a different email is rejected. (Invite -> accept flow re-verified
+   after the `000006` crypto fix.)
 7. **Audit integrity**: audit rows appear for each listed event and contain no
    secrets; direct `insert into audit_logs` is rejected for `authenticated`.
 8. **Deactivated roles** cannot be assigned or invited; system roles cannot be
    deactivated; roles with active members cannot be deactivated.
+9. **Trainer restriction** (Phase 1.2): a trainer cannot reach billing, GST,
+   finance/reports, staff, or organization management via the UI routes or the
+   REST API, but keeps their allowed areas. (Verified live against the dev
+   server with a session cookie.)
+10. **Protected routes**: unauthenticated `/dashboard` redirects to
+    `/login?next=...`; unauthorized members land on `/access-denied`; the
+    owner can reach every protected page.
+11. **No privilege escalation on the app side**: the UI offers no self role
+    change / self-promotion path and no ability to mint an owner.

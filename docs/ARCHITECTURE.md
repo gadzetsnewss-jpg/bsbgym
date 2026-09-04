@@ -130,6 +130,59 @@ The Phase 1.1 spec's `user_roles` mapping is intentionally **not** re-created:
 user <-> org <-> role with branch access. Adding a separate `user_roles` table
 would create two sources of truth for membership.
 
+## Phase 1.2 security & permissions
+
+Migrations `20260831000005` (security) and `20260831000006` (invitation crypto
+fix) complete the authentication/RBAC/multi-tenant hardening for Phase 1.2.
+
+### Branch security hardening
+
+- The `branches` SELECT policy is tightened to
+  `is_org_member(organization_id) AND user_has_branch_access(organization_id, id)`.
+- A **two-argument** `user_has_branch_access(p_org_id, p_branch_id)` overload was
+  added for the policy. Unlike the single-argument variant it never self-joins
+  `branches`, so it stays correct when PostgreSQL re-checks the SELECT policy
+  against the returned row of an `INSERT ... RETURNING` (a newly inserted row is
+  not yet visible to a self-referencing subquery). This was a real bug found
+  during live verification: branch creation silently failed with "new row
+  violates row-level security policy".
+- **Composite FKs** `member_branches_branch_org_fkey` and
+  `invitation_branches_branch_org_fkey` on `(organization_id, branch_id) ->
+  branches(organization_id, id)` guarantee a branch row always belongs to the
+  organization that grants it, closing cross-org grants by changing `branch_id`.
+
+### Database-driven permission catalogue
+
+- `seed_default_role_permissions(p_org_id)` (SECURITY DEFINER, execution revoked
+  from `public`/`anon`/`authenticated`) seeds the full 56-permission catalogue
+  for the seven default roles: owner/admin get everything (admin except
+  `organization.manage`), manager/staff/receptionist/trainer/accountant get
+  role-appropriate subsets. Trainer is deliberately excluded from billing, GST,
+  payments, finance, reports, staff and organization management.
+- `create_organization` now calls the seed, and a backfill DO-block re-seeds
+  existing organizations **insert-only** (`on conflict do nothing`) so custom
+  role edits are preserved.
+- `src/lib/auth/permissions.ts` mirrors the catalogue exactly (enforced by a
+  parity test) and gains `hasRole()`.
+
+### Invitation crypto fix (`000006`)
+
+`create_invitation`/`accept_invitation` called `gen_random_bytes`/`digest`
+unqualified while forcing `search_path = public`, but those functions live in
+the `extensions` schema - the whole invitation flow was broken at runtime. They
+are recreated with schema-qualified `extensions.*` calls.
+
+### App-level authorization
+
+- `src/config/route-permissions.ts` maps path prefixes to required permissions.
+  The `(app)` layout redirects unauthorized members to `/access-denied`; the
+  middleware exposes the pathname via an `x-pathname` request header. RLS
+  remains the enforcement boundary; this is the app-level gate.
+- `RouteGate` (`src/components/auth/route-gate.tsx`) is a client per-section
+  gate that renders `AccessDenied` (`src/components/auth/access-denied.tsx`).
+- The user menu shows Profile, Organization, Current Branch, Role, Settings and
+  Logout; sidebar, global search and quick actions are permission-filtered.
+
 ## Invitation token lifecycle
 
 1. `create_invitation(p_org_id, p_email, p_role_id, p_branch_ids, p_all_branches,
@@ -211,7 +264,10 @@ database triggers. RLS makes it select-only for org members; secrets
   `src/lib/auth/permissions.test.ts`,
   `src/lib/auth/authorization.test.ts`,
   `src/lib/errors.test.ts`,
-  `src/lib/org/rbac-migration.test.ts`).
+  `src/lib/auth/session-errors.test.ts`,
+  `src/config/route-permissions.test.ts`,
+  `src/lib/org/rbac-migration.test.ts`,
+  `src/lib/org/security-migration.test.ts`).
 - `npm run typecheck` - `tsc --noEmit`.
 - `npm run build` - production build; all Phase 3 pages are statically
   validated by Next.js typed routes.

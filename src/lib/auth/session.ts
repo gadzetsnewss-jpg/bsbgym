@@ -27,11 +27,49 @@ export interface SignUpResult {
   sessionCreated: boolean;
 }
 
-const toResultError = (error: unknown): { message: string; code?: string } => {
-  const message =
+const DB_INTERNAL_RE = /sql|relation|column|row-level security|\brls\b|violates|database error/i;
+
+/**
+ * Maps a raw Supabase / API error into one of the spec's public messages so DB
+ * internals are never surfaced to the user. Falls back to the original message
+ * only when it is already user-safe.
+ */
+export function toAuthErrorMessage(error: unknown): string {
+  const raw =
     typeof error === "object" && error !== null && "message" in error
       ? String((error as { message: unknown }).message)
-      : "Something went wrong. Please try again.";
+      : "";
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? String((error as { code: unknown }).code)
+      : "";
+
+  if (
+    code === "invalid_credentials" ||
+    /invalid login credentials|email or password|password is incorrect/i.test(raw)
+  ) {
+    return "Email or password is incorrect.";
+  }
+  if (
+    code === "session_missing" ||
+    code === "refresh_token_not_found" ||
+    /session has expired|session expired|auth session missing|refresh token/i.test(raw)
+  ) {
+    return "Your session has expired. Please sign in again.";
+  }
+  if (
+    /permission|row-level security|\bpolicy\b|not authorized|insufficient privileges|access denied|access to this area/i.test(raw)
+  ) {
+    return "You don't have permission to access this area.";
+  }
+  if (DB_INTERNAL_RE.test(raw)) {
+    return "Something went wrong. Please try again.";
+  }
+  return raw || "Something went wrong. Please try again.";
+}
+
+const toResultError = (error: unknown): { message: string; code?: string } => {
+  const message = toAuthErrorMessage(error);
   const code =
     typeof error === "object" && error !== null && "code" in error
       ? String((error as { code: unknown }).code)

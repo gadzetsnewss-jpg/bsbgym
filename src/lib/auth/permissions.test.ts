@@ -10,12 +10,65 @@ import {
   isSystemRole,
   isAdminRole,
   isOwnerRole,
+  hasRole,
   hasPermission,
   canGrantPermissions,
   permissionOptions,
   USER_STATUS_LABELS,
   INVITATION_STATUS_LABELS,
 } from "@/lib/auth/permissions";
+
+/**
+ * The Phase 1.2 owner catalogue, mirrored verbatim from
+ * `seed_default_role_permissions` in
+ * `20260831000005_phase_1_2_security.sql`. This test keeps the TypeScript
+ * model and the database seed in sync.
+ */
+const OWNER_CATALOGUE = [
+  "dashboard.view",
+
+  "members.view", "members.create", "members.update", "members.delete", "members.export",
+
+  "memberships.view", "memberships.create", "memberships.update",
+  "memberships.freeze", "memberships.extend", "memberships.transfer",
+
+  "billing.view", "billing.create", "billing.edit", "billing.refund",
+  "billing.void", "billing.export",
+
+  "gst.view", "gst.manage",
+
+  "payments.view", "payments.create", "payments.refund",
+
+  "attendance.view", "attendance.create", "attendance.manage",
+
+  "trainers.view", "trainers.create", "trainers.edit", "trainers.assign", "trainers.reassign",
+
+  "classes.view", "classes.manage", "bookings.manage",
+
+  "pos.view", "pos.create",
+
+  "inventory.view", "inventory.manage",
+
+  "crm.view", "crm.manage",
+
+  "finance.view", "finance.manage",
+
+  "reports.view", "reports.export",
+
+  "staff.view", "staff.manage",
+
+  "settings.view", "settings.manage",
+
+  "users.view", "users.manage",
+
+  "roles.view", "roles.manage",
+
+  "branches.view", "branches.manage",
+
+  "organization.manage",
+
+  "invites.send",
+];
 
 describe("PERMISSIONS", () => {
   it("exposes users.manage and invites.send for the user-management UI", () => {
@@ -41,6 +94,36 @@ describe("PERMISSIONS", () => {
     expect(PERMISSIONS.roles.view).toBe("roles.view");
     expect(PERMISSIONS.roles.manage).toBe("roles.manage");
     expect(PERMISSIONS.branches.view).toBe("branches.view");
+  });
+
+  it("exposes the Phase 1.2 permission keys", () => {
+    expect(PERMISSIONS.gst.view).toBe("gst.view");
+    expect(PERMISSIONS.gst.manage).toBe("gst.manage");
+    expect(PERMISSIONS.payments.view).toBe("payments.view");
+    expect(PERMISSIONS.payments.refund).toBe("payments.refund");
+    expect(PERMISSIONS.pos.view).toBe("pos.view");
+    expect(PERMISSIONS.pos.create).toBe("pos.create");
+    expect(PERMISSIONS.organization.manage).toBe("organization.manage");
+    expect(PERMISSIONS.staff.view).toBe("staff.view");
+    expect(PERMISSIONS.staff.manage).toBe("staff.manage");
+    expect(PERMISSIONS.bookings.manage).toBe("bookings.manage");
+    expect(PERMISSIONS.memberships.freeze).toBe("memberships.freeze");
+    expect(PERMISSIONS.memberships.extend).toBe("memberships.extend");
+    expect(PERMISSIONS.memberships.transfer).toBe("memberships.transfer");
+    expect(PERMISSIONS.billing.edit).toBe("billing.edit");
+    expect(PERMISSIONS.billing.void).toBe("billing.void");
+    expect(PERMISSIONS.attendance.manage).toBe("attendance.manage");
+    expect(PERMISSIONS.trainers.create).toBe("trainers.create");
+    expect(PERMISSIONS.trainers.edit).toBe("trainers.edit");
+    expect(PERMISSIONS.trainers.assign).toBe("trainers.assign");
+    expect(PERMISSIONS.trainers.reassign).toBe("trainers.reassign");
+  });
+
+  it("ALL_PERMISSIONS matches the database seed catalogue exactly", () => {
+    const flat = [...ALL_PERMISSIONS].sort();
+    expect(flat).toEqual([...OWNER_CATALOGUE].sort());
+    expect(new Set(flat).size).toBe(flat.length);
+    expect(flat.length).toBe(56);
   });
 
   it("ALL_PERMISSIONS flattens every group without duplicates", () => {
@@ -82,6 +165,15 @@ describe("system roles", () => {
     expect(isSystemRole("trainer")).toBe(false);
     expect(isSystemRole(undefined)).toBe(false);
     expect(isSystemRole(null)).toBe(false);
+  });
+
+  it("hasRole matches the role slug against a list of slugs", () => {
+    expect(hasRole("owner", ["owner", "admin"])).toBe(true);
+    expect(hasRole("admin", ["owner", "admin"])).toBe(true);
+    expect(hasRole("trainer", ["owner", "admin"])).toBe(false);
+    expect(hasRole("trainer", [])).toBe(false);
+    expect(hasRole(undefined, ["owner"])).toBe(false);
+    expect(hasRole(null, ["owner"])).toBe(false);
   });
 });
 

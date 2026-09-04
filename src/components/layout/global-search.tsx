@@ -7,22 +7,29 @@ import { Modal } from "@/components/ui/modal";
 import { FLAT_NAV_ITEMS } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
+import { useOrganization } from "@/components/auth/org-provider";
 
 export function GlobalSearch({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
   const { toast } = useToast();
+  const { can, context } = useOrganization();
 
   const results = React.useMemo(() => {
+    const preview = context === null;
     const q = query.trim().toLowerCase();
-    if (!q) return FLAT_NAV_ITEMS.slice(0, 8);
-    return FLAT_NAV_ITEMS.filter(
+    const qFiltered = (items: typeof FLAT_NAV_ITEMS) =>
+      items.filter(
+        (item) => preview || !item.permission || can(item.permission),
+      );
+    if (!q) return qFiltered(FLAT_NAV_ITEMS).slice(0, 8);
+    return qFiltered(FLAT_NAV_ITEMS).filter(
       (item) =>
         item.title.toLowerCase().includes(q) ||
         item.sectionTitle.toLowerCase().includes(q) ||
         item.href.toLowerCase().includes(q),
     ).slice(0, 8);
-  }, [query]);
+  }, [query, can, context]);
 
   React.useEffect(() => {
     if (!open) setQuery("");

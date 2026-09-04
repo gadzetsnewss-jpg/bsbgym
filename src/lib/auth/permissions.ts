@@ -30,24 +30,45 @@ export const PERMISSIONS = {
     view: "memberships.view",
     create: "memberships.create",
     update: "memberships.update",
+    freeze: "memberships.freeze",
+    extend: "memberships.extend",
+    transfer: "memberships.transfer",
   },
   billing: {
     view: "billing.view",
     create: "billing.create",
+    edit: "billing.edit",
     refund: "billing.refund",
+    void: "billing.void",
     export: "billing.export",
   },
-  attendance: { view: "attendance.view", create: "attendance.create" },
-  trainers: { view: "trainers.view" },
+  gst: { view: "gst.view", manage: "gst.manage" },
+  payments: { view: "payments.view", create: "payments.create", refund: "payments.refund" },
+  attendance: {
+    view: "attendance.view",
+    create: "attendance.create",
+    manage: "attendance.manage",
+  },
+  trainers: {
+    view: "trainers.view",
+    create: "trainers.create",
+    edit: "trainers.edit",
+    assign: "trainers.assign",
+    reassign: "trainers.reassign",
+  },
   classes: { view: "classes.view", manage: "classes.manage" },
+  bookings: { manage: "bookings.manage" },
+  pos: { view: "pos.view", create: "pos.create" },
   inventory: { view: "inventory.view", manage: "inventory.manage" },
   crm: { view: "crm.view", manage: "crm.manage" },
   finance: { view: "finance.view", manage: "finance.manage" },
   reports: { view: "reports.view", export: "reports.export" },
+  staff: { view: "staff.view", manage: "staff.manage" },
   settings: { view: "settings.view", manage: "settings.manage" },
   users: { view: "users.view", manage: "users.manage" },
   roles: { view: "roles.view", manage: "roles.manage" },
   branches: { view: "branches.view", manage: "branches.manage" },
+  organization: { manage: "organization.manage" },
   invites: { send: "invites.send" },
 } as const;
 
@@ -77,6 +98,14 @@ export function isAdminRole(slug: string | undefined | null): boolean {
 /** True when the role is the organization owner. */
 export function isOwnerRole(slug: string | undefined | null): boolean {
   return slug === "owner";
+}
+
+/** True when the member's role slug is one of the listed slugs. */
+export function hasRole(
+  roleSlug: string | undefined | null,
+  roleSlugs: readonly string[],
+): boolean {
+  return roleSlugs.includes(roleSlug ?? "");
 }
 
 /** True when the member holds every permission listed. */
@@ -159,17 +188,23 @@ const GROUP_LABELS: Record<string, string> = {
   members: "Members",
   memberships: "Memberships",
   billing: "Billing",
+  gst: "GST",
+  payments: "Payments",
   attendance: "Attendance",
   trainers: "Trainers",
   classes: "Classes",
+  bookings: "Bookings",
+  pos: "POS",
   inventory: "Inventory",
   crm: "CRM",
   finance: "Finance",
   reports: "Reports",
+  staff: "Staff",
   settings: "Settings",
   users: "Users",
   roles: "Roles",
   branches: "Branches",
+  organization: "Organization",
   invites: "Invitations",
 };
 
@@ -181,7 +216,14 @@ function permissionLabel(value: string): string {
     update: "Update",
     delete: "Delete",
     export: "Export",
+    freeze: "Freeze",
+    extend: "Extend",
+    transfer: "Transfer",
+    edit: "Edit",
+    void: "Void",
     refund: "Process refunds",
+    assign: "Assign",
+    reassign: "Reassign",
     manage: "Manage",
     send: "Send",
   };

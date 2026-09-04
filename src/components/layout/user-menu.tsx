@@ -1,28 +1,33 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, Settings, UserRound } from "lucide-react";
+import { Building2, LogOut, Settings, Shield, Store, UserRound } from "lucide-react";
 import { Dropdown } from "@/components/ui/dropdown";
 import { UserAvatar } from "@/components/ui/user-avatar";
 import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/components/auth/auth-provider";
 import { useOrganization } from "@/components/auth/org-provider";
-import { CURRENT_USER } from "@/data/mock-org";
+import { CURRENT_USER, ORG_BRANCHES } from "@/data/mock-org";
 
 /**
  * User menu backed by the auth + organization context. In preview mode
- * (no Supabase) it falls back to the Phase 0 mock user.
+ * (no Supabase) it falls back to the Phase 0 mock user. Shows the member's
+ * Profile, Organization, Current Branch, Role, Settings and Logout.
  */
 export function UserMenu({ className }: { className?: string }) {
   const { toast } = useToast();
   const router = useRouter();
   const { configured, signOut } = useAuth();
-  const { context, profile, member } = useOrganization();
+  const { context, profile, member, currentBranch, can } = useOrganization();
 
   const displayName = context
     ? [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") || "User"
     : CURRENT_USER.name;
   const roleName = context ? (member?.roleName ?? "") : CURRENT_USER.role;
+  const branchName = context
+    ? (currentBranch?.name ?? "No branch selected")
+    : (ORG_BRANCHES[0]?.name ?? "No branch selected");
+  const canManageOrg = context ? can("organization.manage") : true;
 
   const handleSignOut = async () => {
     if (!configured) {
@@ -59,9 +64,26 @@ export function UserMenu({ className }: { className?: string }) {
           href: "/settings/profile",
         },
         {
+          label: "Organization",
+          icon: Building2,
+          href: canManageOrg ? "/settings/organization" : undefined,
+          disabled: !canManageOrg,
+        },
+        {
+          label: `Current Branch: ${branchName}`,
+          icon: Store,
+          disabled: true,
+        },
+        {
+          label: `Role: ${roleName}`,
+          icon: Shield,
+          disabled: true,
+        },
+        {
           label: "Settings",
           icon: Settings,
           href: "/settings/general",
+          separator: true,
         },
         {
           label: "Sign out",
