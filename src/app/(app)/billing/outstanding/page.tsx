@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OutstandingList } from "@/components/billing/outstanding-list";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/billing/outstanding" />;
+export const metadata: Metadata = { title: "Outstanding" };
+
+export default function OutstandingPage() {
+  return <OutstandingList />;
 }

@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OperationsList } from "@/components/operations/operations-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/classes/bookings" />;
+export const metadata: Metadata = { title: "Bookings" };
+
+export default function ClassBookingsPage() {
+  return <OperationsList resource="class_bookings" />;
 }

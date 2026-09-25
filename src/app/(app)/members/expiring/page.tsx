@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OperationsList } from "@/components/operations/operations-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/members/expiring" />;
+export const metadata: Metadata = { title: "Expiring" };
+
+export default function ExpiringMembershipsPage() {
+  return <OperationsList resource="memberships_expiring" />;
 }

@@ -145,13 +145,14 @@ export function ProfileForm() {
         </FormField>
       </FormSection>
 
-      <FormSection title="Email" description="Your sign-in email is managed by your account provider.">
+      <FormSection title="Sign-in details" description="Your username is used to sign in. Contact number is private.">
         <div>
-          <p className="text-sm font-medium text-ink">Email address</p>
-          <p className="mt-0.5 text-sm text-neutral-500">{profile.email ?? "—"}</p>
-          <p className="mt-1.5 text-xs text-neutral-400">
-            To change your email, contact support or update it through Supabase Auth.
-          </p>
+          <p className="text-sm font-medium text-ink">Username</p>
+          <p className="mt-0.5 text-sm text-neutral-500">{profile.username ?? "—"}</p>
+        </div>
+        <div>
+          <p className="text-sm font-medium text-ink">Contact number</p>
+          <p className="mt-0.5 text-sm text-neutral-500">{profile.contactNumber ?? profile.phone ?? "—"}</p>
         </div>
       </FormSection>
 

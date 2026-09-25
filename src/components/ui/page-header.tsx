@@ -1,6 +1,7 @@
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DecorativeIcon } from "@/components/ui/decorative-icon";
 
 export interface PageHeaderProps {
   title: string;
@@ -23,7 +24,7 @@ export function PageHeader({
       <div className="flex items-start gap-3">
         {Icon && (
           <div className="mt-0.5 flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-700">
-            <Icon aria-hidden="true" className="size-5" />
+            <DecorativeIcon icon={Icon} className="size-5" />
           </div>
         )}
         <div>

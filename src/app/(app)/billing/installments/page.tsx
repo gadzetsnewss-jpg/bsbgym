@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { InstallmentsList } from "@/components/billing/installments-list";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/billing/installments" />;
+export const metadata: Metadata = { title: "Installments" };
+
+export default function InstallmentsPage() {
+  return <InstallmentsList />;
 }

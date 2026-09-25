@@ -1,5 +1,10 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OrganizationForm } from "@/components/settings/organization-form";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/settings/organization" />;
+export const metadata: Metadata = {
+  title: "Organization",
+};
+
+export default function OrganizationPage() {
+  return <OrganizationForm />;
 }

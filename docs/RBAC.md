@@ -102,8 +102,12 @@ via `requiredPermissionForPath(pathname)` (longest-prefix match). The
 `(app)` layout evaluates it server-side using the `x-pathname` header set by
 the middleware and redirects unauthorized members to `/access-denied`
 (`src/components/auth/access-denied.tsx`). `/access-denied` and
-`/settings/profile` are reachable by every authenticated member. This is the
-app-level gate; RLS and the RPC guards remain the enforcement boundary.
+`/settings/profile` are reachable by every authenticated member. Settings
+routes: `/settings/organization` requires `organization.manage` (owner),
+`/settings/branches` requires `branches.view`, `/settings/invoice-settings`
+requires `settings.view`, `/settings/tax-gst` requires `gst.view`, and
+`/settings/general` requires `settings.view`. This is the app-level gate;
+RLS and the RPC guards remain the enforcement boundary.
 
 ## Role lifecycle RPCs
 
@@ -117,6 +121,18 @@ All SECURITY DEFINER, all validate the caller is an org admin, all use
 | `set_role_permissions(p_role_id, p_permissions)` | Replaces the full permission set |
 | `set_role_status(p_role_id, p_active)` | Deactivates / reactivates a role |
 | `update_member_role(p_member_id, p_role_id)` | Assigns a role to a member |
+
+Phase 1.3 settings RPCs (all SECURITY DEFINER, all derive identity from
+`auth.uid()`):
+
+| RPC | Who | Behavior |
+| --- | --- | --- |
+| `update_organization(...)` | owner | Org profile, GSTIN, regional defaults; slug is not writable |
+| `update_organization_preferences(p_org_id, p_currency, p_timezone, p_date_format)` | admin | Regional defaults only, so general settings does not need `organization.manage` |
+| `create_branch(...)` | admin | Creates a branch; codes unique per org and immutable after create |
+| `update_branch(...)` | admin | Updates contact/GSTIN/address; never changes `code` |
+| `set_branch_status(p_branch_id, p_status)` | admin | Activate/deactivate; refuses the last active branch |
+| `upsert_organization_setting(p_org_id, p_setting_key, p_setting_value)` | admin | JSONB key/value; re-checks admin from `auth.uid()` |
 
 ### Guards
 
@@ -178,8 +194,11 @@ filtering is purely presentational and everything remains server-enforced.
   rules.
 - `src/lib/auth/session-errors.test.ts` - spec error-message mapping
   (bad credentials / forbidden / expired session).
-- `src/config/route-permissions.test.ts` - longest-prefix route resolution.
+- `src/config/route-permissions.test.ts` - longest-prefix route resolution
+  (including `/settings/general` -> `settings.view`).
 - `src/lib/org/rbac-migration.test.ts` - static migration invariants
   (backfill, audit RLS, RPC guards).
 - `src/lib/org/security-migration.test.ts` - Phase 1.2 invariants (branch
   select policy, composite FKs, seed-function ACL, crypto qualification).
+- `src/lib/org/settings-migration.test.ts` - Phase 1.3 invariants (owner-only
+  org update, admin preferences/branch RPCs, last-active-branch guard).

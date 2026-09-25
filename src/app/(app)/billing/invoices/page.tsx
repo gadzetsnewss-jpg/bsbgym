@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { InvoicesList } from "@/components/billing/invoices-list";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/billing/invoices" />;
+export const metadata: Metadata = { title: "Invoices" };
+
+export default function InvoicesPage() {
+  return <InvoicesList />;
 }

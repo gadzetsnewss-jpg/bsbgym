@@ -10,6 +10,8 @@ export interface AppProfile {
   lastName: string;
   email: string | null;
   phone: string | null;
+  username: string | null;
+  contactNumber: string | null;
   avatarUrl: string | null;
   preferences: Record<string, unknown>;
 }
@@ -17,6 +19,8 @@ export interface AppProfile {
 export interface AppOrganization {
   id: string;
   name: string;
+  slug: string;
+  gstin: string | null;
   legalName: string | null;
   businessType: string | null;
   email: string | null;
@@ -50,7 +54,15 @@ export interface AppBranch {
   id: string;
   name: string;
   code: string;
+  gstin: string | null;
+  phone: string | null;
+  email: string | null;
+  addressLine1: string | null;
+  addressLine2: string | null;
   city: string | null;
+  state: string | null;
+  postalCode: string | null;
+  country: string | null;
   timezone: string;
   status: string;
 }
@@ -69,8 +81,6 @@ export interface AppContextData {
 }
 
 export interface AuthPageSearchParams {
-  /** e.g. `?verified=email` after clicking the confirmation link. */
-  verified?: string;
   /** e.g. `?invite=<token>` to pre-fill the accept flow. */
   invite?: string;
   /** e.g. `?next=/dashboard` for post-login redirects. */

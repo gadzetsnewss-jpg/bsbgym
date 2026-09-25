@@ -36,10 +36,10 @@ interface AuthContextValue {
   user: SessionUser | null;
   /** False when no Supabase project is configured (preview mode). */
   configured: boolean;
-  signIn: (email: string, password: string) => Promise<AuthResult>;
+  signIn: (username: string, password: string) => Promise<AuthResult>;
   signUp: (input: SignUpInput) => Promise<{ data: SignUpResult | null; error: { message: string } | null }>;
   signOut: () => Promise<AuthResult>;
-  sendPasswordReset: (email: string) => Promise<AuthResult>;
+  sendPasswordReset: (username: string) => Promise<AuthResult>;
   updatePassword: (password: string) => Promise<AuthResult>;
   refreshUser: () => Promise<void>;
 }
@@ -99,8 +99,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status,
       user,
       configured: isSupabaseConfigured,
-      signIn: async (email, password) => {
-        const result = await signInWithPassword(email, password);
+      signIn: async (username, password) => {
+        const result = await signInWithPassword(username, password);
         return result.error ? { error: { message: result.error.message } } : { error: null };
       },
       signUp: async (input) => {
@@ -112,8 +112,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const result = await signOutCurrentUser();
         return result.error ? { error: { message: result.error.message } } : { error: null };
       },
-      sendPasswordReset: async (email) => {
-        const result = await sendPasswordResetEmail(email);
+      sendPasswordReset: async (username) => {
+        const result = await sendPasswordResetEmail(username);
         return result.error ? { error: { message: result.error.message } } : { error: null };
       },
       updatePassword: async (password) => {

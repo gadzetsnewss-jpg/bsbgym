@@ -5,6 +5,7 @@ import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DecorativeIcon } from "@/components/ui/decorative-icon";
 
 export interface DropdownItem {
   label: string;
@@ -109,7 +110,11 @@ export function Dropdown({
   };
 
   return (
-    <div ref={containerRef} className={cn("relative", className)}>
+    <div
+      ref={containerRef}
+      className={cn("relative", className)}
+      onClick={(event) => event.stopPropagation()}
+    >
       <button
         type="button"
         aria-haspopup="menu"
@@ -147,14 +152,13 @@ export function Dropdown({
           )}
         >
           {items.map((item, index) => {
-            const Icon = item.icon;
             const content = (
               <>
-                {Icon && (
-                  <Icon
-                    aria-hidden="true"
+                {item.icon && (
+                  <DecorativeIcon
+                    icon={item.icon}
                     className={cn(
-                      "size-4 shrink-0",
+                      "size-4",
                       item.variant === "danger"
                         ? "text-red-500"
                         : "text-neutral-400",

@@ -56,6 +56,7 @@ export const PERMISSIONS = {
     assign: "trainers.assign",
     reassign: "trainers.reassign",
   },
+  fitness: { view: "fitness.view", manage: "fitness.manage" },
   classes: { view: "classes.view", manage: "classes.manage" },
   bookings: { manage: "bookings.manage" },
   pos: { view: "pos.view", create: "pos.create" },
@@ -192,6 +193,7 @@ const GROUP_LABELS: Record<string, string> = {
   payments: "Payments",
   attendance: "Attendance",
   trainers: "Trainers",
+  fitness: "Fitness",
   classes: "Classes",
   bookings: "Bookings",
   pos: "POS",
@@ -256,4 +258,15 @@ export const INVITATION_STATUS_LABELS: Record<string, string> = {
   accepted: "Accepted",
   revoked: "Revoked",
   expired: "Expired",
+};
+
+export const BRANCH_STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  inactive: "Inactive",
+};
+
+export const GYM_MEMBER_STATUS_LABELS: Record<string, string> = {
+  active: "Active",
+  inactive: "Inactive",
+  suspended: "Suspended",
 };

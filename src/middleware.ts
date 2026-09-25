@@ -29,7 +29,7 @@ const PROTECTED_PREFIXES = [
 const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot-password", "/reset-password"];
 
 /** Paths that must never be redirected (callbacks, asset-ish routes). */
-const EXCLUDED_PREFIXES = ["/auth", "/accept-invitation", "/_next"];
+const EXCLUDED_PREFIXES = ["/auth", "/api", "/accept-invitation", "/_next"];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;

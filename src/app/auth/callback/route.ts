@@ -3,8 +3,8 @@ import { createServerSupabase } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
 
 /**
- * Auth callback - handles one-time code exchange (email confirmation,
- * password reset links that route through /auth/callback).
+ * Auth callback - handles one-time code exchange for password-reset
+ * links that route through /auth/callback.
  * Redirects to onboarding when the user has no organization yet.
  */
 export async function GET(request: Request) {

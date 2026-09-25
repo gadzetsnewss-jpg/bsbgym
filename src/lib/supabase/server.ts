@@ -8,7 +8,7 @@
  */
 
 import { createServerClient } from "@supabase/ssr";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { env, serverEnv, isSupabaseConfigured } from "@/lib/env";
 import type { Database } from "@/lib/supabase/types";
@@ -44,18 +44,11 @@ export async function createServerSupabase(): Promise<SupabaseClient<Database> |
 
 /** Server client with the service-role key (server-side only, never exposed). */
 export async function createServerSupabaseAdmin(): Promise<SupabaseClient<Database> | null> {
-  if (!isSupabaseConfigured) return null;
+  if (!isSupabaseConfigured || !serverEnv.supabaseServiceRoleKey) return null;
 
-  return createServerClient<Database>(
-    env.supabaseUrl as string,
-    (serverEnv.supabaseServiceRoleKey ?? env.supabaseAnonKey) as string,
-    {
-      cookies: {
-        getAll: () => [],
-        setAll: () => {},
-      },
-    },
-  );
+  return createClient<Database>(env.supabaseUrl as string, serverEnv.supabaseServiceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 }
 
 export { isSupabaseConfigured };

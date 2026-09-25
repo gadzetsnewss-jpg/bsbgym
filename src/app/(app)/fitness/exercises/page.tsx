@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { CatalogList } from "@/components/catalog/catalog-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/fitness/exercises" />;
+export const metadata: Metadata = { title: "Exercises" };
+
+export default function ExercisesPage() {
+  return <CatalogList resource="exercises" />;
 }

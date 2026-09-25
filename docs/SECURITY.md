@@ -80,6 +80,11 @@ Every security decision is enforced at the database layer. The frontend gating
 - **App-level gate**: `src/config/route-permissions.ts` + the `(app)` layout
   redirect unauthorized members to `/access-denied`. Cosmetic checks use
   `hasRole()` in addition to `hasPermission()`.
+- **Phase 1.3 write path**: organization profile updates are owner-only
+  (`update_organization`); regional defaults, branch lifecycle and org
+  settings upserts are admin-only RPCs that re-check `auth.uid()`. Branch
+  codes are immutable after create; the last active branch cannot be
+  deactivated. Frontend `organization_id` is never the only gate.
 
 ## Invitation security
 
@@ -98,10 +103,11 @@ Every security decision is enforced at the database layer. The frontend gating
 
 ## Audit logging
 
-`audit_logs` records `organization.created`, `invitation.created/accepted/
+`audit_logs` records `organization.created/updated`, `invitation.created/accepted/
 revoked/expired/updated`, `member.joined/removed/role_changed/status_changed/
 reactivated/branch_access_changed/updated`, `role.created/updated/reactivated/
-deactivated` and `role.permission_granted/permission_revoked`.
+deactivated`, `role.permission_granted/permission_revoked` and
+`branch.created/updated/reactivated/deactivated`.
 
 - **Select-only for org members** (RLS). Writes go exclusively through the
   SECURITY DEFINER `record_audit_event`, which is **not** granted to
@@ -143,7 +149,9 @@ In this environment the app runs in preview mode (`isSupabaseConfigured =
 false`) when no Supabase credentials are configured. A real Supabase project
 (`xwornvqtepbliehmrisp`) has been used for live verification - all migrations
 through `20260831000006` are applied there and the checklist below has been
-run against it.
+run against it. Phase 1.3 (`20260913000007`) adds the settings RPCs on top;
+apply it with `supabase db push` before using the organization/branches/
+general settings pages against a live project.
 
 ## Verification checklist (to run against a real Supabase project)
 

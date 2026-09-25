@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OperationsList } from "@/components/operations/operations-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/memberships/freeze-extend" />;
+export const metadata: Metadata = { title: "Freeze / extend" };
+
+export default function MembershipFreezePage() {
+  return <OperationsList resource="membership_freezes" />;
 }

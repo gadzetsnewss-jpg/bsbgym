@@ -6,11 +6,13 @@ This repository currently contains the **Phase 0 foundation**, the
 **Phase 3 multi-tenant foundation** (Supabase Auth + RLS/RBAC, org/branch
 multi-tenancy, dynamic roles, audit logging), the **Phase 1.1 database
 foundation** (org slug/GSTIN, profiles status, org/branch settings,
-subscriptions, tenant helper functions) and the **Phase 1.2 security &
+subscriptions, tenant helper functions), the **Phase 1.2 security &
 permissions work** (RLS/branch-access hardening with composite FKs, the full
 56-permission database-seeded catalogue, app-level route authorization with an
-Access Denied page, and professional auth/session error handling). Later
-modules build on these without restructuring.
+Access Denied page, and professional auth/session error handling) and the
+**Phase 1.3 organization, branch and general settings** write path
+(SECURITY DEFINER RPCs, GSTIN, immutable branch codes, last-active-branch
+protection). Later modules build on these without restructuring.
 
 > **Phase 0 scope:** application shell, design system, navigation, dashboard with mock data, login-ready structure. No database, no real authentication, no billing/GST logic yet.
 
@@ -52,8 +54,8 @@ npm run dev
 Open http://localhost:3000 — the app redirects to the `/dashboard` route.
 
 New sign-ups land on `/onboarding` (5-step wizard) and create their
-organization. Note: email confirmation is enabled by default, so a new account
-must confirm its email before it can sign in.
+organization. Accounts sign in with username + password. Email confirmation
+is disabled, so a new account can sign in immediately.
 
 ### Scripts
 
@@ -128,7 +130,7 @@ Semantic HTML, labelled controls, visible focus rings, keyboard-friendly menus/t
 | Phase | Focus |
 | --- | --- |
 | **0** | Application shell, design system, navigation, dashboard with mock data |
-| **1** | Supabase schema, Auth, RLS/RBAC, multi-tenant org/branch model (Phase 3 + Phase 1.1 + Phase 1.2 implemented; feature repositories still to come) |
+| **1** | Supabase schema, Auth, RLS/RBAC, multi-tenant org/branch model (Phase 3 + Phase 1.1 + Phase 1.2 + Phase 1.3 org/branch/settings implemented; billing/feature repositories still to come) |
 | **2** | Members, memberships, billing, invoices, GST, payments |
 | **3** | Attendance, trainers, fitness, classes, POS, inventory |
 | **4** | CRM, finance, reports, notifications, member portal |

@@ -7,17 +7,22 @@ by Supabase Auth.
 
 ## How sign-in works
 
-1. `src/app/(auth)/login/page.tsx` validates the form with `loginSchema`
-   (zod) and calls `useAuth().signIn()`.
-2. `AuthProvider` (`src/components/auth/auth-provider.tsx`) wraps
-   `supabase.auth.signInWithPassword` and exposes `status`:
-   `loading | authenticated | unauthenticated`.
-3. On success the user is redirected via the `?next=` query param (default
+1. `src/app/(auth)/login/page.tsx` validates username + password with
+   `loginSchema` (zod) and calls `useAuth().signIn()`.
+2. `POST /api/auth/sign-in` resolves the username to the internal Auth
+   email with the service-role RPC `auth_email_for_username` (never
+   returned to the client) and then calls `signInWithPassword`.
+3. `AuthProvider` exposes `status`: `loading | authenticated | unauthenticated`.
+4. On success the user is redirected via the `?next=` query param (default
    `/dashboard`).
 
-- Sign up (`/signup`): email + password + names. Confirmation is sent by
-  Supabase; the success screen points back to `/login?verified=email`.
-- Forgot password (`/forgot-password`): calls `supabase.auth.resetPasswordForEmail`.
+- Sign up (`/signup`): username, Indian contact number, names and password.
+  Username is stored on `profiles` (case-insensitive unique). Contact number
+  is stored as `profiles.contact_number` / `profiles.phone` and is not used
+  as the login identifier. Email confirmation is disabled, so a session is
+  created immediately and the user is sent to `/onboarding`.
+- Forgot password (`/forgot-password`): username only. The server looks up
+  the Auth email and calls `resetPasswordForEmail` without exposing it.
 - Reset password (`/reset-password`): exchanges the PKCE `?code=` for a session
   via `exchangeCodeForSession` (`src/lib/auth/session.ts`) before updating the
   password, so the new password is set with a fresh session.

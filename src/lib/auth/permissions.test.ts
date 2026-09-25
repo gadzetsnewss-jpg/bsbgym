@@ -20,9 +20,10 @@ import {
 
 /**
  * The Phase 1.2 owner catalogue, mirrored verbatim from
- * `seed_default_role_permissions` in
- * `20260831000005_phase_1_2_security.sql`. This test keeps the TypeScript
- * model and the database seed in sync.
+ * `seed_default_role_permissions` (Phase 1.2, extended additively by
+ * `20260915000012_phase_3_2a_catalog_rpcs.sql` with `fitness.view` /
+ * `fitness.manage`). This test keeps the TypeScript model and the database
+ * seed in sync.
  */
 const OWNER_CATALOGUE = [
   "dashboard.view",
@@ -42,6 +43,8 @@ const OWNER_CATALOGUE = [
   "attendance.view", "attendance.create", "attendance.manage",
 
   "trainers.view", "trainers.create", "trainers.edit", "trainers.assign", "trainers.reassign",
+
+  "fitness.view", "fitness.manage",
 
   "classes.view", "classes.manage", "bookings.manage",
 
@@ -117,13 +120,15 @@ describe("PERMISSIONS", () => {
     expect(PERMISSIONS.trainers.edit).toBe("trainers.edit");
     expect(PERMISSIONS.trainers.assign).toBe("trainers.assign");
     expect(PERMISSIONS.trainers.reassign).toBe("trainers.reassign");
+    expect(PERMISSIONS.fitness.view).toBe("fitness.view");
+    expect(PERMISSIONS.fitness.manage).toBe("fitness.manage");
   });
 
   it("ALL_PERMISSIONS matches the database seed catalogue exactly", () => {
     const flat = [...ALL_PERMISSIONS].sort();
     expect(flat).toEqual([...OWNER_CATALOGUE].sort());
     expect(new Set(flat).size).toBe(flat.length);
-    expect(flat.length).toBe(56);
+    expect(flat.length).toBe(58);
   });
 
   it("ALL_PERMISSIONS flattens every group without duplicates", () => {

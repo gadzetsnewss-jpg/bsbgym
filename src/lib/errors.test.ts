@@ -36,6 +36,11 @@ describe("toFriendlyError", () => {
   it("preserves useful validation messages", () => {
     expect(toFriendlyError({ message: "a valid email is required" }).code).toBe("validation");
     expect(toFriendlyError({ message: "role slug is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "branch code already exists" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "cannot deactivate the last active branch" }).code).toBe(
+      "validation",
+    );
+    expect(toFriendlyError({ message: "currency is required" }).code).toBe("validation");
   });
 
   it("falls back to database for unexpected errors", () => {

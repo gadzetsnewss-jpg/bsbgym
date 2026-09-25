@@ -8,6 +8,13 @@
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { AppProfile } from "@/lib/auth/types";
+import {
+  GENERIC_CREDENTIALS_MESSAGE,
+  USERNAME_TAKEN_MESSAGE,
+  normalizeContactNumber,
+  normalizeUsername,
+  toInternalAuthEmail,
+} from "@/lib/auth/username";
 
 export type AuthResult<T = undefined> =
   | { data: T; error: null }
@@ -16,14 +23,14 @@ export type AuthResult<T = undefined> =
 export interface SignUpInput {
   firstName: string;
   lastName: string;
-  email: string;
+  username: string;
+  contactNumber: string;
   password: string;
 }
 
 export interface SignUpResult {
   userId: string;
-  email: string;
-  /** Present when email confirmation is not required. */
+  username: string;
   sessionCreated: boolean;
 }
 
@@ -46,9 +53,12 @@ export function toAuthErrorMessage(error: unknown): string {
 
   if (
     code === "invalid_credentials" ||
-    /invalid login credentials|email or password|password is incorrect/i.test(raw)
+    /invalid login credentials|email or password|username or password|password is incorrect/i.test(raw)
   ) {
-    return "Email or password is incorrect.";
+    return GENERIC_CREDENTIALS_MESSAGE;
+  }
+  if (/username is already taken|duplicate key.*username|already registered/i.test(raw)) {
+    return USERNAME_TAKEN_MESSAGE;
   }
   if (
     code === "session_missing" ||
@@ -78,25 +88,30 @@ const toResultError = (error: unknown): { message: string; code?: string } => {
 };
 
 export async function signInWithPassword(
-  email: string,
+  username: string,
   password: string,
 ): Promise<AuthResult<{ userId: string }>> {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) {
+  if (!getSupabaseBrowserClient()) {
     return { data: null, error: { message: "Supabase is not configured." } };
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email,
-    password,
-  });
-
-  if (error) return { data: null, error: toResultError(error) };
-  if (!data.user) {
-    return { data: null, error: { message: "No user was returned." } };
+  try {
+    const response = await fetch("/api/auth/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+    const payload = (await response.json()) as { userId?: string; error?: string };
+    if (!response.ok || !payload.userId) {
+      return {
+        data: null,
+        error: { message: payload.error || GENERIC_CREDENTIALS_MESSAGE },
+      };
+    }
+    return { data: { userId: payload.userId }, error: null };
+  } catch {
+    return { data: null, error: { message: "Something went wrong. Please try again." } };
   }
-
-  return { data: { userId: data.user.id }, error: null };
 }
 
 export async function signUpWithPassword(
@@ -107,15 +122,31 @@ export async function signUpWithPassword(
     return { data: null, error: { message: "Supabase is not configured." } };
   }
 
+  const username = normalizeUsername(input.username);
+  const contactNumber = normalizeContactNumber(input.contactNumber);
+  if (!contactNumber) {
+    return { data: null, error: { message: "Enter a valid 10-digit Indian mobile number." } };
+  }
+
+  const { data: available, error: availabilityError } = await supabase.rpc(
+    "username_is_available",
+    { p_username: username },
+  );
+  if (availabilityError) return { data: null, error: toResultError(availabilityError) };
+  if (available === false) {
+    return { data: null, error: { message: USERNAME_TAKEN_MESSAGE } };
+  }
+
   const { data, error } = await supabase.auth.signUp({
-    email: input.email,
+    email: toInternalAuthEmail(username),
     password: input.password,
     options: {
       data: {
         first_name: input.firstName,
         last_name: input.lastName,
+        username,
+        contact_number: contactNumber,
       },
-      emailRedirectTo: `${window.location.origin}/auth/callback?next=/login?verified=email`,
     },
   });
 
@@ -127,7 +158,7 @@ export async function signUpWithPassword(
   return {
     data: {
       userId: data.user.id,
-      email: data.user.email ?? input.email,
+      username,
       sessionCreated: Boolean(data.session),
     },
     error: null,
@@ -143,15 +174,24 @@ export async function signOutCurrentUser(): Promise<AuthResult> {
   return { data: undefined, error: null };
 }
 
-export async function sendPasswordResetEmail(email: string): Promise<AuthResult> {
-  const supabase = getSupabaseBrowserClient();
-  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+export async function sendPasswordResetEmail(username: string): Promise<AuthResult> {
+  if (!getSupabaseBrowserClient()) {
+    return { data: null, error: { message: "Supabase is not configured." } };
+  }
 
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${window.location.origin}/reset-password`,
-  });
-  if (error) return { data: null, error: toResultError(error) };
-  return { data: undefined, error: null };
+  try {
+    const response = await fetch("/api/auth/forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    });
+    if (!response.ok) {
+      return { data: undefined, error: null };
+    }
+    return { data: undefined, error: null };
+  } catch {
+    return { data: undefined, error: null };
+  }
 }
 
 export async function updateUserPassword(password: string): Promise<AuthResult> {
@@ -164,7 +204,7 @@ export async function updateUserPassword(password: string): Promise<AuthResult> 
 }
 
 /**
- * Exchanges a one-time code (from a password-reset / confirmation email link)
+ * Exchanges a one-time code (from a password-reset email link)
  * for a session. Returns null when the code is missing or invalid.
  */
 export async function exchangeCodeForSession(code: string): Promise<AuthResult<{ userId: string }>> {
@@ -182,6 +222,7 @@ export async function exchangeCodeForSession(code: string): Promise<AuthResult<{
 export interface SessionUser {
   id: string;
   email: string | null;
+  username: string | null;
   firstName: string | null;
   lastName: string | null;
 }
@@ -199,6 +240,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   return {
     id: user.id,
     email: user.email ?? null,
+    username: typeof meta?.username === "string" ? meta.username : null,
     firstName: typeof meta?.first_name === "string" ? meta.first_name : null,
     lastName: typeof meta?.last_name === "string" ? meta.last_name : null,
   };
@@ -227,6 +269,8 @@ export function toAppProfile(row: {
   last_name: string;
   email: string | null;
   phone: string | null;
+  username?: string | null;
+  contact_number?: string | null;
   avatar_url: string | null;
   preferences: unknown;
 }): AppProfile {
@@ -235,7 +279,9 @@ export function toAppProfile(row: {
     firstName: row.first_name,
     lastName: row.last_name,
     email: row.email,
-    phone: row.phone,
+    phone: row.contact_number ?? row.phone,
+    username: row.username ?? null,
+    contactNumber: row.contact_number ?? null,
     avatarUrl: row.avatar_url,
     preferences:
       row.preferences && typeof row.preferences === "object"

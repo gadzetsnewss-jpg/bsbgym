@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { CatalogList } from "@/components/catalog/catalog-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/billing/gst-master" />;
+export const metadata: Metadata = { title: "GST master" };
+
+export default function GstMasterPage() {
+  return <CatalogList resource="gst_rates" />;
 }

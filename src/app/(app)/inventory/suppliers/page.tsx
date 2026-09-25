@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { CatalogList } from "@/components/catalog/catalog-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/inventory/suppliers" />;
+export const metadata: Metadata = { title: "Suppliers" };
+
+export default function SuppliersPage() {
+  return <CatalogList resource="suppliers" />;
 }

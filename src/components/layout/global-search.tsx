@@ -4,6 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { Search } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
+import { DecorativeIcon } from "@/components/ui/decorative-icon";
 import { FLAT_NAV_ITEMS } from "@/config/navigation";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/components/ui/toast";
@@ -79,7 +80,6 @@ export function GlobalSearch({ className }: { className?: string }) {
 
         <ul className="space-y-1">
           {results.map((item) => {
-            const Icon = item.icon;
             return (
               <li key={item.href}>
                 <Link
@@ -88,7 +88,7 @@ export function GlobalSearch({ className }: { className?: string }) {
                   className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-ink transition-colors hover:bg-primary-50 focus-visible:ring-2 focus-visible:ring-primary-500"
                 >
                   <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-50 text-primary-700">
-                    <Icon aria-hidden="true" className="size-4" />
+                    <DecorativeIcon icon={item.icon} className="size-4" />
                   </span>
                   <span className="min-w-0">
                     <span className="block truncate font-medium">{item.title}</span>

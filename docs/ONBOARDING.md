@@ -5,33 +5,50 @@ and complete a 5-step wizard before getting access to the app.
 
 ## Flow
 
-1. `Account` - first/last name (already known from sign-up, editable).
+1. `Account` - first/last name (already known from sign-up, editable). Continue
+   writes the signed-in profile.
 2. `Business` - name, legal name, business type (from the `business_types`
-   reference table, seeded in the migration), address, tax ID, currency,
-   timezone, date format.
+   reference table, seeded in the migration), address, tax ID. Continue
+   persists these fields onto the draft organization.
 3. `Branch` - the first branch (name, unique code, contact, address, timezone).
-4. `Preferences` - currency / timezone / date format defaults.
+   Continue stores a draft on the same organization; the real branch row is
+   created on Complete.
+4. `Preferences` - currency / timezone / date format defaults. Continue
+   UPDATEs the draft organization.
 5. `Review` - summary, then submit.
+
+## What happens on each Continue
+
+`src/lib/org/onboarding.ts` calls a SECURITY DEFINER RPC for the current step.
+The database derives identity from `auth.uid()`. The client never sends an
+organization or branch id. Returning to `/onboarding` prefills from
+`get_onboarding_organization` and resumes at the first incomplete step.
+
+The wizard does not advance until that write succeeds.
 
 ## What happens on submit
 
 `src/lib/org/onboarding.ts` calls the `create_organization` SECURITY DEFINER
 RPC. In a single transaction the database:
 
-1. Creates the organization (with an auto UUID `id` and `created_by = auth.uid()`).
+1. UPDATEs the existing draft organization when one exists; otherwise INSERTs
+   a new organization (`created_by = auth.uid()`). It never creates a second
+   org for a user who already has a draft or an active membership.
 2. Seeds the seven default roles (`owner`, `admin`, `manager`, `staff` as
    protected system roles plus configurable `receptionist`, `trainer`,
-   `accountant`) and their granular `role_permissions`.
+   `accountant`) and their granular `role_permissions` if they are not
+   already present.
 3. Creates the owner membership (`access_all_branches = true`, status `active`).
 4. Creates the first branch with the user's chosen code (normalized to
    uppercase) and grants the owner all-branch access.
 
-The RPC validates input (name, branch code format, currency/timezone present),
-rejects duplicate branch codes, and raises exceptions on failure so the UI can
-show a clear error. `organization_id` is always derived server-side from
-`auth.uid()` - never trusted from the frontend.
+The RPC validates input (name, branch code format, currency/timezone present)
+and raises exceptions on failure so the UI can show a clear error.
+`organization_id` is always derived server-side from `auth.uid()` - never
+trusted from the frontend.
 
-After success the wizard shows a completion screen linking to `/dashboard`.
+After success the wizard hard-navigates to `/dashboard` (with an Open
+dashboard fallback if the browser stays on the completion screen).
 
 ## Wizard implementation
 

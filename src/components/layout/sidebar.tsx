@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { NAV_SECTIONS } from "@/config/navigation";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { Logo } from "@/components/layout/logo";
+import { DecorativeIcon } from "@/components/ui/decorative-icon";
 import { useOrganization } from "@/components/auth/org-provider";
 import type { NavItem, NavSection } from "@/types/navigation";
 
@@ -24,13 +25,13 @@ interface NavLinkProps {
 
 function NavLink({ item, collapsed, pathname, onNavigate }: NavLinkProps) {
   const active = isActive(item.href, pathname);
-  const Icon = item.icon;
 
   return (
     <Link
       href={item.href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
+      aria-label={item.title}
       title={collapsed ? item.title : undefined}
       className={cn(
         "group relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
@@ -48,10 +49,10 @@ function NavLink({ item, collapsed, pathname, onNavigate }: NavLinkProps) {
           active ? "opacity-100" : "opacity-0",
         )}
       />
-      <Icon
-        aria-hidden="true"
+      <DecorativeIcon
+        icon={item.icon}
         className={cn(
-          "size-5 shrink-0",
+          "size-5",
           active ? "text-primary-300" : "text-primary-100/60",
         )}
       />

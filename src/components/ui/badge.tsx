@@ -90,6 +90,7 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   expired: "danger",
   frozen: "danger",
   paused: "danger",
+  suspended: "danger",
   failed: "danger",
   cancelled: "danger",
   canceled: "danger",

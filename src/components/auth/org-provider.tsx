@@ -64,6 +64,10 @@ interface OrgContextValue {
   isOwner: boolean;
   /** Updates the cached profile after an edit (e.g. profile page). */
   updateProfileLocal: (profile: AppContextData["profile"]) => void;
+  /** Updates the cached organization after an edit (e.g. organization settings). */
+  updateOrganizationLocal: (organization: AppContextData["organization"]) => void;
+  /** Updates authorized branches after create/edit/status changes. */
+  updateBranchesLocal: (branches: AppContextData["branches"]) => void;
 }
 
 const OrgContext = React.createContext<OrgContextValue | null>(null);
@@ -121,6 +125,29 @@ export function OrgProvider({ initial, children }: OrgProviderProps) {
 
   const branches = context?.branches ?? [];
 
+  const updateProfileLocal = React.useCallback((profile: AppContextData["profile"]) => {
+    setContext((prev) => (prev ? { ...prev, profile } : prev));
+  }, []);
+
+  const updateOrganizationLocal = React.useCallback(
+    (organization: AppContextData["organization"]) => {
+      setContext((prev) => (prev ? { ...prev, organization } : prev));
+    },
+    [],
+  );
+
+  const updateBranchesLocal = React.useCallback((nextBranches: AppContextData["branches"]) => {
+    setContext((prev) => (prev ? { ...prev, branches: nextBranches } : prev));
+    setCurrentBranchId((current) => {
+      if (current && nextBranches.some((branch) => branch.id === current)) {
+        return current;
+      }
+      const nextId = nextBranches[0]?.id ?? null;
+      if (nextId) writeBranchCookie(nextId);
+      return nextId;
+    });
+  }, []);
+
   const value = React.useMemo<OrgContextValue>(() => {
     const currentBranch =
       branches.find((branch) => branch.id === currentBranchId) ?? null;
@@ -155,11 +182,18 @@ export function OrgProvider({ initial, children }: OrgProviderProps) {
       hasRole: (roleSlugs) => hasRole(context?.member.roleSlug, roleSlugs),
       isAdmin: isAdminRole(context?.member.roleSlug),
       isOwner: isOwnerRole(context?.member.roleSlug),
-      updateProfileLocal: (profile) => {
-        setContext((prev) => (prev ? { ...prev, profile } : prev));
-      },
+      updateProfileLocal,
+      updateOrganizationLocal,
+      updateBranchesLocal,
     };
-  }, [context, branches, currentBranchId]);
+  }, [
+    context,
+    branches,
+    currentBranchId,
+    updateProfileLocal,
+    updateOrganizationLocal,
+    updateBranchesLocal,
+  ]);
 
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;
 }

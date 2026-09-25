@@ -1,5 +1,10 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { InvoiceSettingsForm } from "@/components/settings/invoice-settings-form";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/settings/invoice-settings" />;
+export const metadata: Metadata = {
+  title: "Invoice Settings",
+};
+
+export default function InvoiceSettingsPage() {
+  return <InvoiceSettingsForm />;
 }

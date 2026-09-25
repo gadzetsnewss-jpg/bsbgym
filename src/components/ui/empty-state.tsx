@@ -4,6 +4,7 @@ import type { LucideIcon } from "lucide-react";
 import { Inbox } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button, ButtonLink, type ButtonVariant } from "@/components/ui/button";
+import { DecorativeIcon } from "@/components/ui/decorative-icon";
 
 export interface EmptyStateProps {
   title: string;
@@ -38,7 +39,7 @@ export function EmptyState({
       )}
     >
       <div className="mb-4 flex size-12 items-center justify-center rounded-full bg-primary-50 text-primary-600">
-        <Icon aria-hidden="true" className="size-6" />
+        <DecorativeIcon icon={Icon} className="size-6" />
       </div>
       <h3 className="text-base font-semibold text-ink">{title}</h3>
       {description && (
@@ -52,9 +53,7 @@ export function EmptyState({
                 variant={action.variant ?? "primary"}
                 href={action.href}
               >
-                {action.icon && (
-                  <action.icon aria-hidden="true" className="size-4" />
-                )}
+                {action.icon && <DecorativeIcon icon={action.icon} className="size-4" />}
                 {action.label}
               </ButtonLink>
             ) : (
@@ -62,9 +61,7 @@ export function EmptyState({
                 variant={action.variant ?? "primary"}
                 onClick={action.onClick}
               >
-                {action.icon && (
-                  <action.icon aria-hidden="true" className="size-4" />
-                )}
+                {action.icon && <DecorativeIcon icon={action.icon} className="size-4" />}
                 {action.label}
               </Button>
             ))}

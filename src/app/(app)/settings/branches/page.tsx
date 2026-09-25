@@ -1,5 +1,10 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { BranchesManager } from "@/components/settings/branches-manager";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/settings/branches" />;
+export const metadata: Metadata = {
+  title: "Branches",
+};
+
+export default function BranchesPage() {
+  return <BranchesManager />;
 }

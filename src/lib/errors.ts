@@ -119,7 +119,65 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("a valid email is required") ||
     text.includes("a role is required") ||
     text.includes("role name is required") ||
-    text.includes("role slug is required")
+    text.includes("role slug is required") ||
+    text.includes("currency is required") ||
+    text.includes("timezone is required") ||
+    text.includes("date format is required") ||
+    text.includes("you already belong to an organization") ||
+    text.includes("organization name is required") ||
+    text.includes("branch name is required") ||
+    text.includes("branch code is required") ||
+    text.includes("branch code may only contain") ||
+    text.includes("branch code already exists") ||
+    text.includes("cannot deactivate the last active branch") ||
+    text.includes("setting key is required") ||
+    text.includes("setting key is invalid") ||
+    text.includes("first name is required") ||
+    text.includes("last name is required") ||
+    text.includes("phone is required") ||
+    text.includes("phone must contain at least 8 digits") ||
+    text.includes("gender is invalid") ||
+    text.includes("branch is required") ||
+    text.includes("member code already exists") ||
+    text.includes("trainer assignment is not available yet") ||
+    text.includes("status is required") ||
+    text.includes("end date cannot be before start date") ||
+    text.includes("amounts cannot be negative") ||
+    text.includes("only active memberships can be") ||
+    text.includes("extension days must be greater than zero") ||
+    text.includes("freeze duration must be greater than zero") ||
+    text.includes("freeze exceeds the plan freeze allowance") ||
+    text.includes("plan is not active") ||
+    text.includes("start and end dates are required") ||
+    text.includes("member not found") ||
+    text.includes("membership not found") ||
+    text.includes("at least one invoice item is required") ||
+    text.includes("tax mode is invalid") ||
+    text.includes("invoice not found") ||
+    text.includes("invoice is already cancelled") ||
+    text.includes("paid invoices cannot be cancelled") ||
+    text.includes("only draft invoices can be issued") ||
+    text.includes("payments can only be recorded against issued invoices") ||
+    text.includes("payment amount must be greater than zero") ||
+    text.includes("payment method is invalid") ||
+    text.includes("payment exceeds the outstanding balance") ||
+    text.includes("installments require an issued invoice") ||
+    text.includes("this invoice already has an installment schedule") ||
+    text.includes("installment count must be between 1 and 24") ||
+    text.includes("applied credit notes cannot be cancelled") ||
+    text.includes("payment not found") ||
+    text.includes("refund amount must be greater than zero") ||
+    text.includes("refund exceeds the refundable amount") ||
+    text.includes("a matching refund was just recorded") ||
+    text.includes("refund method is invalid") ||
+    text.includes("refund not found") ||
+    text.includes("refund status is invalid") ||
+    text.includes("completed refunds cannot be changed") ||
+    text.includes("credit notes require an issued invoice") ||
+    text.includes("at least one credit note item is required") ||
+    text.includes("item description is required") ||
+    text.includes("credit note amount must be greater than zero") ||
+    text.includes("credit note exceeds the remaining invoice amount")
   ) {
     return { code: "validation", message: raw };
   }

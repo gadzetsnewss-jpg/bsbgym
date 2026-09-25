@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OperationsList } from "@/components/operations/operations-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/fitness/diet-plans" />;
+export const metadata: Metadata = { title: "Diet plans" };
+
+export default function DietPlansPage() {
+  return <OperationsList resource="diet_plans" />;
 }

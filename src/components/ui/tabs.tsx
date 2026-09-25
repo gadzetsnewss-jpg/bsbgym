@@ -3,6 +3,7 @@
 import * as React from "react";
 import type { LucideIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { DecorativeIcon } from "@/components/ui/decorative-icon";
 
 export interface TabItem {
   value: string;
@@ -64,7 +65,6 @@ export function Tabs({
       >
         {items.map((item, index) => {
           const selected = item.value === value;
-          const Icon = item.icon;
           return (
             <button
               key={item.value}
@@ -94,7 +94,7 @@ export function Tabs({
                 ),
               )}
             >
-              {Icon && <Icon aria-hidden="true" className="size-4" />}
+              {item.icon && <DecorativeIcon icon={item.icon} className="size-4" />}
               {item.label}
               {item.badge !== undefined && (
                 <span

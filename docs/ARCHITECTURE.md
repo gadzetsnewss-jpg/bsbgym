@@ -65,6 +65,13 @@ Migrations live in `supabase/migrations/`:
   `organization_subscriptions` tables (RLS on all three) and the
   `current_user_org_id` / `user_has_org_access` / `user_has_branch_access`
   helper functions. See "Phase 1.1 foundation" below.
+- `20260913000007_phase_1_3_org_branch_settings.sql` - Phase 1.3 settings
+  write path (additive): `update_organization` (owner),
+  `update_organization_preferences` (admin), `create_branch` /
+  `update_branch` / `set_branch_status` (admin) and
+  `upsert_organization_setting` (admin), plus organization-update and
+  branch-lifecycle audit. See "Phase 1.3 organization, branch and settings"
+  below.
 
 Typed access: `src/lib/supabase/types.ts` is a hand-written `Database` type that
 must stay in sync with the migrations. Regenerate with
@@ -183,6 +190,29 @@ are recreated with schema-qualified `extensions.*` calls.
 - The user menu shows Profile, Organization, Current Branch, Role, Settings and
   Logout; sidebar, global search and quick actions are permission-filtered.
 
+## Phase 1.3 organization, branch and settings
+
+Migration `20260913000007` adds the remaining Phase 1.1 write path without
+rebuilding schema. App mutations go through SECURITY DEFINER RPCs even though
+existing owner/admin RLS still allows direct table writes.
+
+- **`update_organization`** is owner-only (`organization.manage`). The org
+  slug is generated on insert and is read-only in the UI.
+- **`update_organization_preferences`** is admin-only so `/settings/general`
+  (`settings.view` / `settings.manage`) does not require owner rights. It
+  updates currency, timezone and date format only.
+- **`create_branch` / `update_branch` / `set_branch_status`** are admin-only.
+  Branch codes are unique per org and immutable after create. The last
+  active branch cannot be deactivated. Access remains
+  `member_branches` + `access_all_branches` (no extra table).
+- **`upsert_organization_setting`** is admin-only JSONB key/value; the RPC
+  re-checks admin from `auth.uid()` and never trusts a frontend
+  `organization_id` as the only gate.
+- Audit covers `organization.updated` and
+  `branch.created/updated/reactivated/deactivated`. Invoice numbering and
+  tax/GST defaults persist through `upsert_organization_setting` (`invoice`,
+  `tax_gst`) until the billing module exists.
+
 ## Invitation token lifecycle
 
 1. `create_invitation(p_org_id, p_email, p_role_id, p_branch_ids, p_all_branches,
@@ -240,9 +270,9 @@ database triggers. RLS makes it select-only for org members; secrets
 | Permission model | `src/lib/auth/permissions.ts` |
 | Friendly errors | `src/lib/errors.ts` |
 | Validation schemas | `src/lib/validation/auth-schemas.ts` |
-| Org services | `src/lib/org/members.ts`, `src/lib/org/onboarding.ts` |
+| Org services | `src/lib/org/members.ts`, `src/lib/org/onboarding.ts`, `src/lib/org/settings.ts` |
 | Onboarding wizard | `src/components/onboarding/*` |
-| Settings pages | `src/app/(app)/settings/profile|users-roles|permissions` |
+| Settings pages | `src/app/(app)/settings/profile|organization|branches|users-roles|permissions|invoice-settings|tax-gst|general` |
 
 ## Decisions & deviations
 
@@ -267,7 +297,8 @@ database triggers. RLS makes it select-only for org members; secrets
   `src/lib/auth/session-errors.test.ts`,
   `src/config/route-permissions.test.ts`,
   `src/lib/org/rbac-migration.test.ts`,
-  `src/lib/org/security-migration.test.ts`).
+  `src/lib/org/security-migration.test.ts`,
+  `src/lib/org/settings-migration.test.ts`).
 - `npm run typecheck` - `tsc --noEmit`.
 - `npm run build` - production build; all Phase 3 pages are statically
   validated by Next.js typed routes.

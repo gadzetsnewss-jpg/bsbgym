@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { BillingDashboardScreen } from "@/components/billing/billing-dashboard";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/billing" />;
+export const metadata: Metadata = { title: "Billing" };
+
+export default function BillingPage() {
+  return <BillingDashboardScreen />;
 }

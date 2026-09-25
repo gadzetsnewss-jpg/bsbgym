@@ -11,6 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/components/auth/auth-provider";
 import { NotConfiguredNotice, PasswordInput } from "@/components/auth/password-input";
 import { signUpSchema } from "@/lib/validation/auth-schemas";
+import { USERNAME_TAKEN_MESSAGE } from "@/lib/auth/username";
 
 type SignUpValues = z.infer<typeof signUpSchema>;
 
@@ -19,10 +20,11 @@ export default function SignUpPage() {
   const router = useRouter();
   const { configured, signUp } = useAuth();
 
-  const [values, setValues] = React.useState<SignUpValues>({
+  const [values, setValues] = React.useState({
+    username: "",
+    contactNumber: "",
     firstName: "",
     lastName: "",
-    email: "",
     password: "",
     confirmPassword: "",
   });
@@ -30,7 +32,7 @@ export default function SignUpPage() {
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
-  const setField = (field: keyof SignUpValues, value: string) => {
+  const setField = (field: keyof typeof values, value: string) => {
     setValues((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
     setFormError(null);
@@ -55,37 +57,31 @@ export default function SignUpPage() {
     setFormError(null);
 
     const result = await signUp({
+      username: parsed.data.username,
+      contactNumber: parsed.data.contactNumber,
       firstName: parsed.data.firstName,
       lastName: parsed.data.lastName,
-      email: parsed.data.email,
       password: parsed.data.password,
     });
 
     setSubmitting(false);
 
     if (result.error) {
-      setFormError(result.error.message);
+      if (result.error.message === USERNAME_TAKEN_MESSAGE) {
+        setErrors((prev) => ({ ...prev, username: USERNAME_TAKEN_MESSAGE }));
+      } else {
+        setFormError(result.error.message);
+      }
       return;
     }
 
-    if (result.data?.sessionCreated) {
-      toast({
-        title: "Account created",
-        description: "Welcome to BSB FitForge. Setting up your workspace…",
-        variant: "success",
-      });
-      router.replace("/onboarding");
-      router.refresh();
-      return;
-    }
-
-    // Email confirmation required - user must verify before signing in.
     toast({
-      title: "Check your inbox",
-      description: "We sent a confirmation link to your email address.",
-      variant: "info",
+      title: "Account created",
+      description: "Welcome to BSB FitForge. Setting up your workspace…",
+      variant: "success",
     });
-    router.replace("/login?verified=email");
+    router.replace(result.data?.sessionCreated ? "/onboarding" : "/login");
+    router.refresh();
   };
 
   const disabled = !configured || submitting;
@@ -102,6 +98,40 @@ export default function SignUpPage() {
       {!configured && <NotConfiguredNotice className="mb-5" />}
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        <FormField
+          label="Username"
+          required
+          hint="3–32 characters. Letters, numbers, dots, underscores or hyphens."
+          error={errors.username}
+        >
+          <Input
+            autoComplete="username"
+            placeholder="aarav.mehta"
+            invalid={Boolean(errors.username)}
+            value={values.username}
+            onChange={(event) => setField("username", event.target.value)}
+            disabled={!configured}
+          />
+        </FormField>
+
+        <FormField
+          label="Contact number"
+          required
+          hint="India (+91) is applied automatically. Enter a 10-digit mobile number."
+          error={errors.contactNumber}
+        >
+          <Input
+            type="tel"
+            inputMode="numeric"
+            autoComplete="tel-national"
+            placeholder="+91 98765 43210"
+            invalid={Boolean(errors.contactNumber)}
+            value={values.contactNumber}
+            onChange={(event) => setField("contactNumber", event.target.value)}
+            disabled={!configured}
+          />
+        </FormField>
+
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FormField label="First name" required error={errors.firstName}>
             <Input
@@ -125,18 +155,6 @@ export default function SignUpPage() {
             />
           </FormField>
         </div>
-
-        <FormField label="Email address" required error={errors.email}>
-          <Input
-            type="email"
-            autoComplete="email"
-            placeholder="you@yourgym.com"
-            invalid={Boolean(errors.email)}
-            value={values.email}
-            onChange={(event) => setField("email", event.target.value)}
-            disabled={!configured}
-          />
-        </FormField>
 
         <FormField
           label="Password"

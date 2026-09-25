@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { CatalogList } from "@/components/catalog/catalog-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/memberships/plans" />;
+export const metadata: Metadata = { title: "Membership plans" };
+
+export default function MembershipPlansPage() {
+  return <CatalogList resource="membership_plans" />;
 }

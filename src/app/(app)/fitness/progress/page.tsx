@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { OperationsList } from "@/components/operations/operations-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/fitness/progress" />;
+export const metadata: Metadata = { title: "Progress" };
+
+export default function ProgressPage() {
+  return <OperationsList resource="progress_entries" />;
 }

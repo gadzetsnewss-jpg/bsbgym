@@ -1,7 +1,6 @@
 "use client";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import { z } from "zod";
 import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,7 +24,15 @@ import {
   TIMEZONES,
 } from "@/lib/validation/auth-schemas";
 import { fetchBusinessTypes, type BusinessTypeOption } from "@/lib/org/members";
-import { createOrganization, type CreateOrganizationInput } from "@/lib/org/onboarding";
+import {
+  createOrganization,
+  fetchOnboardingOrganization,
+  saveOnboardingAccount,
+  saveOnboardingBranch,
+  saveOnboardingBusiness,
+  saveOnboardingPreferences,
+  type CreateOrganizationInput,
+} from "@/lib/org/onboarding";
 
 const STEPS = ["Account", "Business", "Branch", "Preferences", "Complete"] as const;
 
@@ -92,7 +99,6 @@ const STEP_TITLES = [
 
 export function OnboardingWizard() {
   const { toast } = useToast();
-  const router = useRouter();
   const { configured, user } = useAuth();
 
   const [step, setStep] = React.useState(0);
@@ -118,6 +124,58 @@ export function OnboardingWizard() {
     void fetchBusinessTypes().then((result) => {
       if (!result.error) setBusinessTypes(result.data);
     });
+    void fetchOnboardingOrganization().then((result) => {
+      if (result.error) {
+        setSubmitError(result.error.message);
+        return;
+      }
+      if (!result.data) return;
+      const draft = result.data;
+      setData((prev) => ({
+        account: {
+          firstName: draft.firstName || prev.account.firstName,
+          lastName: draft.lastName || prev.account.lastName,
+        },
+        business: {
+          ...prev.business,
+          name: draft.name || prev.business.name,
+          legalName: draft.legalName || prev.business.legalName,
+          businessType: draft.businessType || prev.business.businessType,
+          email: draft.email || prev.business.email,
+          phone: draft.phone || prev.business.phone,
+          website: draft.website || prev.business.website,
+          taxId: draft.taxId || prev.business.taxId,
+          addressLine1: draft.addressLine1 || prev.business.addressLine1,
+          addressLine2: draft.addressLine2 || prev.business.addressLine2,
+          city: draft.city || prev.business.city,
+          state: draft.state || prev.business.state,
+          postalCode: draft.postalCode || prev.business.postalCode,
+          country: draft.country || prev.business.country,
+        },
+        branch: {
+          ...prev.branch,
+          name: draft.branch.name || prev.branch.name,
+          code: draft.branch.code || prev.branch.code,
+          phone: draft.branch.phone || prev.branch.phone,
+          email: draft.branch.email || prev.branch.email,
+          timezone: draft.branch.timezone || prev.branch.timezone,
+          addressLine1: draft.branch.addressLine1 || prev.branch.addressLine1,
+          addressLine2: draft.branch.addressLine2 || prev.branch.addressLine2,
+          city: draft.branch.city || prev.branch.city,
+          state: draft.branch.state || prev.branch.state,
+          postalCode: draft.branch.postalCode || prev.branch.postalCode,
+          country: draft.branch.country || prev.branch.country,
+        },
+        preferences: {
+          currency: draft.currency || prev.preferences.currency,
+          timezone: draft.timezone || prev.preferences.timezone,
+          dateFormat: draft.dateFormat || prev.preferences.dateFormat,
+        },
+      }));
+      if (draft.step > 0) {
+        setStep(Math.min(draft.step, STEPS.length - 1));
+      }
+    });
   }, [configured]);
 
   const currentKey = STEPS[step].toLowerCase() as StepKey;
@@ -138,18 +196,88 @@ export function OnboardingWizard() {
     setSubmitError(null);
   };
 
-  const handleNext = () => {
-    if (step >= STEPS.length - 1) return;
+  const fieldErrorsFrom = (issues: z.ZodIssue[]): Record<string, string> => {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of issues) {
+      const key = String(issue.path[0] ?? "");
+      if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
+    }
+    return fieldErrors;
+  };
+
+  const persistCurrentStep = async (): Promise<boolean> => {
+    if (!configured || submitting) return false;
     const parsed = STEP_SCHEMAS[currentKey].safeParse(currentValues);
     if (!parsed.success) {
-      const fieldErrors: Record<string, string> = {};
-      for (const issue of parsed.error.issues) {
-        const key = String(issue.path[0] ?? "");
-        if (key && !fieldErrors[key]) fieldErrors[key] = issue.message;
-      }
-      setErrors((prev) => ({ ...prev, [currentKey]: fieldErrors }));
-      return;
+      setErrors((prev) => ({ ...prev, [currentKey]: fieldErrorsFrom(parsed.error.issues) }));
+      return false;
     }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    let result: { error: { message: string } | null };
+    if (currentKey === "account") {
+      result = await saveOnboardingAccount({
+        firstName: data.account.firstName,
+        lastName: data.account.lastName,
+      });
+    } else if (currentKey === "business") {
+      result = await saveOnboardingBusiness({
+        name: data.business.name,
+        legalName: data.business.legalName || undefined,
+        businessType: data.business.businessType || undefined,
+        email: data.business.email || undefined,
+        phone: data.business.phone || undefined,
+        website: data.business.website || undefined,
+        taxId: data.business.taxId || undefined,
+        address: {
+          addressLine1: data.business.addressLine1 || undefined,
+          addressLine2: data.business.addressLine2 || undefined,
+          city: data.business.city || undefined,
+          state: data.business.state || undefined,
+          postalCode: data.business.postalCode || undefined,
+          country: data.business.country || undefined,
+        },
+      });
+    } else if (currentKey === "branch") {
+      result = await saveOnboardingBranch({
+        name: data.branch.name,
+        code: data.branch.code,
+        phone: data.branch.phone || undefined,
+        email: data.branch.email || undefined,
+        timezone: data.branch.timezone,
+        address: {
+          addressLine1: data.branch.addressLine1 || undefined,
+          addressLine2: data.branch.addressLine2 || undefined,
+          city: data.branch.city || undefined,
+          state: data.branch.state || undefined,
+          postalCode: data.branch.postalCode || undefined,
+          country: data.branch.country || undefined,
+        },
+      });
+    } else {
+      result = await saveOnboardingPreferences({
+        currency: data.preferences.currency,
+        timezone: data.preferences.timezone,
+        dateFormat: data.preferences.dateFormat,
+      });
+    }
+
+    setSubmitting(false);
+
+    if (result.error) {
+      setSubmitError(result.error.message);
+      return false;
+    }
+    return true;
+  };
+
+  const handleNext = async () => {
+    if (step >= STEPS.length - 1) return;
+    setSubmitError(null);
+    const saved = await persistCurrentStep();
+    if (!saved) return;
     setErrors((prev) => ({ ...prev, [currentKey]: {} }));
     setStep((prev) => prev + 1);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -231,10 +359,7 @@ export function OnboardingWizard() {
       description: "Your organization is ready. Setting up your dashboard…",
       variant: "success",
     });
-    window.setTimeout(() => {
-      router.replace("/dashboard");
-      router.refresh();
-    }, 1200);
+    window.location.assign("/dashboard");
   };
 
   if (done) {
@@ -245,6 +370,15 @@ export function OnboardingWizard() {
         <p className="mt-2 text-sm text-neutral-500">
           We&apos;re taking you to your dashboard…
         </p>
+        <div className="mt-6">
+          <Button
+            onClick={() => {
+              window.location.assign("/dashboard");
+            }}
+          >
+            Open dashboard
+          </Button>
+        </div>
       </Card>
     );
   }
@@ -484,9 +618,13 @@ export function OnboardingWizard() {
           </Button>
 
           {step < STEPS.length - 1 ? (
-            <Button onClick={handleNext} disabled={!configured}>
-              Continue
-              <ArrowRight aria-hidden="true" className="size-4" />
+            <Button
+              onClick={() => void handleNext()}
+              disabled={!configured || submitting}
+              isLoading={submitting}
+            >
+              {submitting ? "Saving…" : "Continue"}
+              {!submitting && <ArrowRight aria-hidden="true" className="size-4" />}
             </Button>
           ) : (
             <Button onClick={handleSubmit} isLoading={submitting} disabled={!configured}>

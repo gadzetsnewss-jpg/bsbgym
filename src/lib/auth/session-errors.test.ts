@@ -10,10 +10,10 @@ describe("toAuthErrorMessage", () => {
   it("maps invalid login credentials to the spec message", () => {
     expect(
       toAuthErrorMessage({ message: "Invalid login credentials", code: "invalid_credentials" }),
-    ).toBe("Email or password is incorrect.");
+    ).toBe("Username or password is incorrect.");
     expect(
       toAuthErrorMessage({ message: "invalid login credentials", code: "" }),
-    ).toBe("Email or password is incorrect.");
+    ).toBe("Username or password is incorrect.");
   });
 
   it("maps missing/expired sessions to the spec message", () => {
@@ -49,8 +49,10 @@ describe("toAuthErrorMessage", () => {
     expect(toAuthErrorMessage({})).toBe("Something went wrong. Please try again.");
   });
 
-  it("keeps user-safe messages that do not match any known pattern", () => {
+  it("maps duplicate username / already-registered errors", () => {
     expect(toAuthErrorMessage({ message: "User already registered", code: "user_exists" }))
-      .toBe("User already registered");
+      .toBe("This username is already taken.");
+    expect(toAuthErrorMessage({ message: "username is already taken" }))
+      .toBe("This username is already taken.");
   });
 });

@@ -22,13 +22,13 @@ export default function LoginPage() {
   const { configured, signIn } = useAuth();
   const next = useQueryParam("next");
 
-  const [values, setValues] = React.useState<LoginValues>({ email: "", password: "" });
+  const [values, setValues] = React.useState({ username: "", password: "" });
   const [errors, setErrors] = React.useState<Partial<Record<keyof LoginValues, string>>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [remember, setRemember] = React.useState(false);
 
-  const setField = (field: keyof LoginValues, value: string) => {
+  const setField = (field: keyof typeof values, value: string) => {
     setValues((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
     setFormError(null);
@@ -53,15 +53,11 @@ export default function LoginPage() {
     setSubmitting(true);
     setFormError(null);
 
-    const result = await signIn(parsed.data.email, parsed.data.password);
+    const result = await signIn(parsed.data.username, parsed.data.password);
     setSubmitting(false);
 
     if (result.error) {
-      const message =
-        result.error.message.toLowerCase().includes("email not confirmed")
-          ? "Please confirm your email address before signing in."
-          : result.error.message;
-      setFormError(message);
+      setFormError(result.error.message);
       return;
     }
 
@@ -82,14 +78,13 @@ export default function LoginPage() {
       {!configured && <NotConfiguredNotice className="mb-5" />}
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <FormField label="Email address" required error={errors.email}>
+        <FormField label="Username" required error={errors.username}>
           <Input
-            type="email"
-            autoComplete="email"
-            placeholder="you@yourgym.com"
-            invalid={Boolean(errors.email)}
-            value={values.email}
-            onChange={(event) => setField("email", event.target.value)}
+            autoComplete="username"
+            placeholder="your.username"
+            invalid={Boolean(errors.username)}
+            value={values.username}
+            onChange={(event) => setField("username", event.target.value)}
             disabled={!configured}
           />
         </FormField>
