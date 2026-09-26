@@ -38,6 +38,22 @@ describe("gym members client", () => {
     expect(client).toMatch(/\.eq\("organization_id", organizationId\)/);
   });
 
+  it("filters the member list by assigned trainer, including unassigned", () => {
+    expect(client).toMatch(/trainerId\?: string \| "all" \| "unassigned"/);
+    expect(client).toMatch(/query\.is\("assigned_trainer_id", null\)/);
+    expect(client).toMatch(/query\.eq\("assigned_trainer_id", filters\.trainerId\)/);
+  });
+
+  it("loads related attendance, trainer assignments, workout plans, and activity by member", () => {
+    expect(client).toMatch(/\.from\("attendance_records"/);
+    expect(client).toMatch(/\.eq\("member_id" as "id", memberId\)/);
+    expect(client).toMatch(/\.from\("trainer_assignments"/);
+    expect(client).toMatch(/\.from\("workout_plans"/);
+    expect(client).toMatch(/\.from\("audit_logs"/);
+    expect(client).toMatch(/\.eq\("target_type", "gym_member"\)/);
+    expect(client).toMatch(/\.from\("trainers"/);
+  });
+
   it("mutates only through SECURITY DEFINER RPCs", () => {
     expect(client).toMatch(/supabase\.rpc\("create_gym_member"/);
     expect(client).toMatch(/supabase\.rpc\("update_gym_member"/);

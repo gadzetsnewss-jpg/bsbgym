@@ -9,7 +9,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { Plus, UserMinus, UserRoundCheck, Users } from "lucide-react";
+import { BadgeCheck, CreditCard, Plus, UserMinus, UserRoundCheck, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { DataTable, type Column } from "@/components/ui/data-table";
@@ -25,8 +25,10 @@ import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
 import {
   fetchGymMembers,
+  fetchTrainerOptions,
   setGymMemberStatus,
   type GymMemberRow,
+  type TrainerOption,
 } from "@/lib/org/gym-members";
 import { GYM_MEMBER_STATUS_LABELS } from "@/lib/auth/permissions";
 import { displayName, formatDate } from "@/lib/format";
@@ -90,6 +92,9 @@ export function MembersList({
   const canCreate = can("members.create");
   const canUpdate = can("members.update");
   const canDeactivate = can("members.delete");
+  const canAssignMembership = can("memberships.create");
+  const canCreateInvoice = can("billing.create");
+  const canAssignTrainer = can("trainers.assign");
 
   const [rows, setRows] = React.useState<GymMemberRow[]>([]);
   const [total, setTotal] = React.useState(0);
@@ -100,6 +105,8 @@ export function MembersList({
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [status, setStatus] = React.useState<GymMemberStatus | "all">(initialStatus);
   const [branchId, setBranchId] = React.useState<string | "all">("all");
+  const [trainerId, setTrainerId] = React.useState<string | "all" | "unassigned">("all");
+  const [trainers, setTrainers] = React.useState<TrainerOption[]>([]);
   const [page, setPage] = React.useState(1);
 
   const [pending, setPending] = React.useState<PendingAction | null>(null);
@@ -125,6 +132,7 @@ export function MembersList({
       search: debouncedSearch,
       status,
       branchId,
+      trainerId,
       page,
       pageSize: PAGE_SIZE,
     });
@@ -135,18 +143,34 @@ export function MembersList({
     }
     setRows(result.data.rows);
     setTotal(result.data.total);
-  }, [orgId, debouncedSearch, status, branchId, page]);
+  }, [orgId, debouncedSearch, status, branchId, trainerId, page]);
+
+  React.useEffect(() => {
+    if (!orgId) return;
+    let cancelled = false;
+    void fetchTrainerOptions(orgId).then((result) => {
+      if (cancelled || result.error) return;
+      setTrainers(result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [orgId]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
   const activeFilterCount =
-    (status !== "all" ? 1 : 0) + (branchId !== "all" ? 1 : 0) + (debouncedSearch ? 1 : 0);
+    (status !== "all" ? 1 : 0) +
+    (branchId !== "all" ? 1 : 0) +
+    (trainerId !== "all" ? 1 : 0) +
+    (debouncedSearch ? 1 : 0);
 
   const clearFilters = () => {
     setStatus("all");
     setBranchId("all");
+    setTrainerId("all");
     setSearch("");
     setPage(1);
   };
@@ -197,6 +221,13 @@ export function MembersList({
       cell: (row) => <span className="text-sm text-neutral-600">{row.branchName}</span>,
     },
     {
+      id: "trainer",
+      header: "Trainer",
+      cell: (row) => (
+        <span className="text-sm text-neutral-600">{row.assignedTrainerName ?? "Unassigned"}</span>
+      ),
+    },
+    {
       id: "joined",
       header: "Joined",
       cell: (row) => <span className="text-sm text-neutral-600">{formatDate(row.joinedAt)}</span>,
@@ -217,6 +248,26 @@ export function MembersList({
         items.push({ label: "View details", href: `/members/${row.id}` });
         if (canUpdate) {
           items.push({ label: "Edit", href: `/members/${row.id}/edit`, separator: true });
+        }
+        if (canAssignMembership) {
+          items.push({
+            label: "Add membership",
+            icon: BadgeCheck,
+            href: `/memberships/active/add?memberId=${row.id}`,
+          });
+        }
+        if (canCreateInvoice) {
+          items.push({
+            label: "New invoice",
+            icon: CreditCard,
+            href: `/billing/new-invoice?memberId=${row.id}`,
+          });
+        }
+        if (canAssignTrainer) {
+          items.push({
+            label: row.assignedTrainerId ? "Change trainer" : "Assign trainer",
+            href: `/trainers/assignments/add?memberId=${row.id}`,
+          });
         }
         if (canUpdate && row.status === "active") {
           items.push({
@@ -299,6 +350,20 @@ export function MembersList({
             options={[
               { value: "all", label: "All branches" },
               ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+            ]}
+          />
+          <Select
+            aria-label="Filter by trainer"
+            className="w-full sm:w-48"
+            value={trainerId}
+            onChange={(event) => {
+              setTrainerId(event.target.value as string | "all" | "unassigned");
+              setPage(1);
+            }}
+            options={[
+              { value: "all", label: "All trainers" },
+              { value: "unassigned", label: "Unassigned" },
+              ...trainers.map((trainer) => ({ value: trainer.id, label: trainer.name })),
             ]}
           />
         </FilterBar>

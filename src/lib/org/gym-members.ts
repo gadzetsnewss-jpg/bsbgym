@@ -17,6 +17,8 @@ function clientOrNull() {
   return getSupabaseBrowserClient();
 }
 
+type AnyTable = "gym_members";
+
 export interface GymMemberRow {
   id: string;
   organizationId: string;
@@ -59,6 +61,7 @@ export interface GymMemberListFilters {
   search?: string;
   status?: GymMemberStatus | "all";
   branchId?: string | "all";
+  trainerId?: string | "all" | "unassigned";
   page?: number;
   pageSize?: number;
 }
@@ -167,6 +170,12 @@ export async function fetchGymMembers(
   }
   if (filters.branchId && filters.branchId !== "all") {
     query = query.eq("branch_id", filters.branchId);
+  }
+  if (filters.trainerId && filters.trainerId !== "all") {
+    query =
+      filters.trainerId === "unassigned"
+        ? query.is("assigned_trainer_id", null)
+        : query.eq("assigned_trainer_id", filters.trainerId);
   }
   const search = filters.search?.trim();
   if (search) {
@@ -292,4 +301,185 @@ export async function setGymMemberStatus(
   });
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return { data: undefined, error: null };
+}
+
+export interface MemberAttendanceRow {
+  id: string;
+  checkInAt: string;
+  checkOutAt: string | null;
+  method: string;
+  branchName: string;
+}
+
+export interface MemberTrainerAssignmentRow {
+  id: string;
+  trainerName: string;
+  assignedAt: string;
+  status: string;
+  notes: string | null;
+}
+
+export interface MemberWorkoutPlanRow {
+  id: string;
+  name: string;
+  goal: string | null;
+  startDate: string | null;
+  endDate: string | null;
+  isActive: boolean;
+}
+
+export interface MemberAuditRow {
+  id: string;
+  action: string;
+  createdAt: string;
+}
+
+export interface TrainerOption {
+  id: string;
+  name: string;
+}
+
+function embedRecord(value: unknown): Record<string, unknown> | null {
+  if (!value) return null;
+  return (Array.isArray(value) ? value[0] : value) as Record<string, unknown> | null;
+}
+
+function embedLabel(value: unknown): string {
+  const record = embedRecord(value);
+  if (!record) return "—";
+  if (record.full_name) return String(record.full_name);
+  const joined = [record.first_name, record.last_name].filter(Boolean).join(" ").trim();
+  if (joined) return joined;
+  if (record.name && record.code) return `${String(record.name)} (${String(record.code)})`;
+  return String(record.name ?? "—");
+}
+
+export async function fetchMemberAttendance(
+  organizationId: string,
+  memberId: string,
+  limit = 8,
+): Promise<OrgResult<MemberAttendanceRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("attendance_records" as AnyTable)
+    .select("id, check_in_at, check_out_at, method, branches(name, code)")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("check_in_at" as "created_at", { ascending: false })
+    .limit(limit);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      checkInAt: String(row.check_in_at ?? ""),
+      checkOutAt: row.check_out_at ? String(row.check_out_at) : null,
+      method: String(row.method || "manual"),
+      branchName: embedLabel(row.branches),
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberTrainerAssignments(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberTrainerAssignmentRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("trainer_assignments" as AnyTable)
+    .select("id, assigned_at, status, notes, trainers(full_name, first_name, last_name)")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("assigned_at" as "created_at", { ascending: false })
+    .limit(12);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      trainerName: embedLabel(row.trainers),
+      assignedAt: String(row.assigned_at ?? ""),
+      status: String(row.status || "active"),
+      notes: row.notes ? String(row.notes) : null,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberWorkoutPlans(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberWorkoutPlanRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("workout_plans" as AnyTable)
+    .select("id, name, goal, start_date, end_date, is_active")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("start_date" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? "Plan"),
+      goal: row.goal ? String(row.goal) : null,
+      startDate: row.start_date ? String(row.start_date) : null,
+      endDate: row.end_date ? String(row.end_date) : null,
+      isActive: row.is_active !== false,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberActivity(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberAuditRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("audit_logs")
+    .select("id, action, created_at")
+    .eq("organization_id", organizationId)
+    .eq("target_type", "gym_member")
+    .eq("target_id", memberId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      action: String(row.action ?? ""),
+      createdAt: String(row.created_at ?? ""),
+    })),
+    error: null,
+  };
+}
+
+export async function fetchTrainerOptions(
+  organizationId: string,
+): Promise<OrgResult<TrainerOption[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("trainers" as AnyTable)
+    .select("id, full_name, first_name, last_name, code, status")
+    .eq("organization_id", organizationId)
+    .eq("status", "active")
+    .order("first_name" as "created_at", { ascending: true })
+    .limit(200);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      name:
+        String(row.full_name ?? "").trim() ||
+        [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
+        String(row.code ?? "Trainer"),
+    })),
+    error: null,
+  };
 }

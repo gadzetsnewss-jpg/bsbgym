@@ -3,8 +3,8 @@
 /**
  * Gym member profile (Phase 3.1).
  *
- * Read-only profile with status actions. Memberships are loaded from the
- * memberships module; billing and activity remain later-module placeholders.
+ * Read-only profile with status actions and related membership, billing,
+ * attendance, trainer, fitness, and activity data.
  */
 
 import * as React from "react";
@@ -29,7 +29,6 @@ import { Card } from "@/components/ui/card";
 import { Badge, StatusBadge } from "@/components/ui/badge";
 import { Tabs } from "@/components/ui/tabs";
 import { UserAvatar } from "@/components/ui/user-avatar";
-import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -44,6 +43,13 @@ import { GYM_MEMBER_STATUS_LABELS } from "@/lib/auth/permissions";
 import { displayName, formatDate } from "@/lib/format";
 import type { GymMemberStatus } from "@/lib/supabase/types";
 import { MemberMembershipsPanel } from "@/components/members/member-memberships-panel";
+import {
+  MemberActivityPanel,
+  MemberAttendancePanel,
+  MemberBillingPanel,
+  MemberFitnessPanel,
+  MemberTrainerPanel,
+} from "@/components/members/member-related-panels";
 
 const GENDER_LABELS: Record<string, string> = {
   male: "Male",
@@ -72,6 +78,9 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
 
   const canEdit = can("members.update");
   const canDeactivate = can("members.delete");
+  const canAssignMembership = can("memberships.create");
+  const canCreateInvoice = can("billing.create");
+  const canAssignTrainer = can("trainers.assign");
 
   const [member, setMember] = React.useState<GymMemberRow | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -164,6 +173,21 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
               <ArrowLeft aria-hidden="true" className="size-4" />
               Back
             </ButtonLink>
+            {canAssignMembership && (
+              <ButtonLink href={`/memberships/active/add?memberId=${member.id}`} variant="outline">
+                Add membership
+              </ButtonLink>
+            )}
+            {canCreateInvoice && (
+              <ButtonLink href={`/billing/new-invoice?memberId=${member.id}`} variant="outline">
+                New invoice
+              </ButtonLink>
+            )}
+            {canAssignTrainer && (
+              <ButtonLink href={`/trainers/assignments/add?memberId=${member.id}`} variant="outline">
+                {member.assignedTrainerName ? "Change trainer" : "Assign trainer"}
+              </ButtonLink>
+            )}
             {canEdit && (
               <ButtonLink href={`/members/${member.id}/edit`}>
                 <Pencil aria-hidden="true" className="size-4" />
@@ -229,6 +253,9 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
           { value: "profile", label: "Profile", icon: Users },
           { value: "membership", label: "Membership", icon: Dumbbell },
           { value: "billing", label: "Billing", icon: CreditCard },
+          { value: "attendance", label: "Attendance", icon: CalendarDays },
+          { value: "trainer", label: "Trainer", icon: UserRoundCheck },
+          { value: "fitness", label: "Fitness", icon: Dumbbell },
           { value: "activity", label: "Activity", icon: Activity },
         ]}
       >
@@ -303,14 +330,16 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
         )}
 
         {tab === "membership" && <MemberMembershipsPanel memberId={member.id} />}
-
-        {tab !== "profile" && tab !== "membership" && (
-          <EmptyState
-            icon={tab === "billing" ? CreditCard : Activity}
-            title={tab === "billing" ? "Billing history coming soon" : "Activity coming soon"}
-            description="This section belongs to a later module and will appear here without any change to the member profile."
+        {tab === "billing" && <MemberBillingPanel memberId={member.id} />}
+        {tab === "attendance" && <MemberAttendancePanel memberId={member.id} />}
+        {tab === "trainer" && (
+          <MemberTrainerPanel
+            memberId={member.id}
+            assignedTrainerName={member.assignedTrainerName}
           />
         )}
+        {tab === "fitness" && <MemberFitnessPanel memberId={member.id} />}
+        {tab === "activity" && <MemberActivityPanel memberId={member.id} />}
       </Tabs>
 
       <ConfirmDialog

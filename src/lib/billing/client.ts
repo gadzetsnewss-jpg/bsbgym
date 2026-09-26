@@ -201,6 +201,7 @@ export interface InvoiceListFilters {
   search?: string;
   status?: string;
   branchId?: string;
+  memberId?: string;
   from?: string;
   to?: string;
   page?: number;
@@ -226,6 +227,7 @@ export async function fetchInvoices(
 
   if (filters.status && filters.status !== "all") query = query.eq("status" as "id", filters.status);
   if (filters.branchId && filters.branchId !== "all") query = query.eq("branch_id" as "id", filters.branchId);
+  if (filters.memberId) query = query.eq("member_id" as "id", filters.memberId);
   if (filters.from) query = query.gte("issue_date" as "created_at", filters.from);
   if (filters.to) query = query.lte("issue_date" as "created_at", filters.to);
   const search = filters.search?.trim();
@@ -411,7 +413,15 @@ export async function setRefundStatus(id: string, status: string): Promise<OrgRe
 
 export async function fetchPayments(
   organizationId: string,
-  opts: { search?: string; method?: string; from?: string; to?: string; page?: number; pageSize?: number } = {},
+  opts: {
+    search?: string;
+    method?: string;
+    memberId?: string;
+    from?: string;
+    to?: string;
+    page?: number;
+    pageSize?: number;
+  } = {},
 ): Promise<OrgResult<{ rows: PaymentRow[]; total: number }>> {
   const supabase = clientOrNull();
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
@@ -431,6 +441,7 @@ export async function fetchPayments(
     .range(from, to);
 
   if (opts.method && opts.method !== "all") query = query.eq("method" as "id", opts.method);
+  if (opts.memberId) query = query.eq("member_id" as "id", opts.memberId);
   if (opts.from) query = query.gte("paid_at" as "created_at", opts.from);
   if (opts.to) query = query.lte("paid_at" as "created_at", `${opts.to}T23:59:59`);
   const search = opts.search?.trim();
