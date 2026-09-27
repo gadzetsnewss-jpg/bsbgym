@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { DecorativeIcon } from "@/components/ui/decorative-icon";
 import { useOrganization } from "@/components/auth/org-provider";
+import { MembershipLifecycleActions } from "@/components/memberships/membership-actions";
 import { fetchMembershipsForMember } from "@/lib/org/memberships";
 import { formatCurrency, formatDate } from "@/lib/format";
 import type { MembershipRow } from "@/lib/operations/adapters";
@@ -71,25 +72,28 @@ export function MemberMembershipsPanel({ memberId }: { memberId: string }) {
         </div>
       )}
       {rows.map((row) => (
-        <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <DecorativeIcon icon={BadgeCheck} className="mt-0.5 size-4 text-primary-700" />
-            <div>
-              <p className="text-sm font-medium text-ink">{row.planName}</p>
-              <p className="text-xs text-neutral-500">
-                {formatDate(row.startDate)} – {formatDate(row.endDate)} · {row.branchName}
-              </p>
+        <Card key={row.id} className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <DecorativeIcon icon={BadgeCheck} className="mt-0.5 size-4 text-primary-700" />
+              <div>
+                <p className="text-sm font-medium text-ink">{row.planName}</p>
+                <p className="text-xs text-neutral-500">
+                  {formatDate(row.startDate)} – {formatDate(row.endDate)} · {row.branchName}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <StatusBadge status={row.status} />
+              <span className="text-sm tabular-nums text-ink">
+                {formatCurrency(row.finalAmount, currency)}
+              </span>
+              <ButtonLink href={`/memberships/active/${row.id}`} variant="outline" size="sm">
+                View
+              </ButtonLink>
             </div>
           </div>
-          <div className="flex items-center gap-3">
-            <StatusBadge status={row.status} />
-            <span className="text-sm tabular-nums text-ink">
-              {formatCurrency(row.finalAmount, currency)}
-            </span>
-            <ButtonLink href={`/memberships/active/${row.id}`} variant="outline" size="sm">
-              View
-            </ButtonLink>
-          </div>
+          <MembershipLifecycleActions row={row} onChanged={() => void load()} />
         </Card>
       ))}
     </div>

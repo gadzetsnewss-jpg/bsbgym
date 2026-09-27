@@ -166,6 +166,10 @@ export const membershipPlanResource: ResourceConfig<MembershipPlanRow> = {
   adapter: membershipPlanAdapter,
   displayName: (row) => row.name,
   billingHandoff: "assign",
+  extraRowActions: (row) =>
+    row.isActive
+      ? [{ label: "Assign to member", href: `/memberships/active/add?planId=${row.id}` }]
+      : [],
 };
 
 export const gstRateResource: ResourceConfig<GstRateRow> = {

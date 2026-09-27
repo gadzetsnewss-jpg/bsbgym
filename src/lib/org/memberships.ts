@@ -53,9 +53,15 @@ function embedName(value: unknown): string | null {
 }
 
 const MEMBERSHIP_SELECT =
-  "id, organization_id, branch_id, member_id, plan_id, status, start_date, end_date, price, discount, final_amount, freeze_days_used, notes, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code), membership_plans(id, name, code)";
+  "id, organization_id, branch_id, member_id, plan_id, status, start_date, end_date, price, discount, final_amount, freeze_days_used, notes, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code), membership_plans(id, name, code, duration_days, max_freeze_days)";
+
+function embedRecord(value: unknown): Row | null {
+  if (!value) return null;
+  return (Array.isArray(value) ? value[0] : value) as Row | null;
+}
 
 function mapMembershipRow(row: Row): MembershipRow {
+  const plan = embedRecord(row.membership_plans);
   return {
     id: asString(row.id),
     organizationId: asString(row.organization_id),
@@ -72,6 +78,8 @@ function mapMembershipRow(row: Row): MembershipRow {
     discount: asNumber(row.discount),
     finalAmount: asNumber(row.final_amount),
     freezeDaysUsed: asNumber(row.freeze_days_used),
+    planDurationDays: asNumber(plan?.duration_days),
+    planMaxFreezeDays: asNumber(plan?.max_freeze_days),
     notes: asNullableString(row.notes),
   };
 }
@@ -137,6 +145,43 @@ export async function fetchMembershipHistory(
   });
 
   return { data: rows, error: null };
+}
+
+export interface MembershipFreezeEvent {
+  id: string;
+  startDate: string;
+  endDate: string;
+  days: number;
+  reason: string | null;
+  createdAt: string;
+}
+
+export async function fetchMembershipFreezes(
+  organizationId: string,
+  membershipId: string,
+): Promise<OrgResult<MembershipFreezeEvent[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase
+    .from("membership_freezes" as AnyTable)
+    .select("id, start_date, end_date, days, reason, created_at")
+    .eq("organization_id", organizationId)
+    .eq("membership_id" as "id", membershipId)
+    .order("start_date" as "created_at", { ascending: false });
+
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Row[]).map((row) => ({
+      id: asString(row.id),
+      startDate: asString(row.start_date),
+      endDate: asString(row.end_date),
+      days: asNumber(row.days),
+      reason: asNullableString(row.reason),
+      createdAt: asString(row.created_at),
+    })),
+    error: null,
+  };
 }
 
 export async function extendMembership(

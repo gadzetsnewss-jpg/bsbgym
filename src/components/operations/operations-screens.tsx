@@ -42,7 +42,9 @@ export function OperationsDetail({
   children?: ReactNode;
 }) {
   const extras =
-    resource === "memberships_active" || resource === "memberships_renewals"
+    resource === "memberships_active" ||
+    resource === "memberships_renewals" ||
+    resource === "memberships_expiring"
       ? (row: unknown) => membershipDetailExtras(row as MembershipRow)
       : undefined;
   return (

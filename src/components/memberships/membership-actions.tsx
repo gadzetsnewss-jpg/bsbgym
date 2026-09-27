@@ -17,7 +17,13 @@ import { loadPlanOptions } from "@/lib/operations/adapters";
 import type { MembershipRow } from "@/lib/operations/adapters";
 import type { SelectOption } from "@/components/ui/select";
 
-export function MembershipLifecycleActions({ row }: { row: MembershipRow }) {
+export function MembershipLifecycleActions({
+  row,
+  onChanged,
+}: {
+  row: MembershipRow;
+  onChanged?: () => void;
+}) {
   const router = useRouter();
   const { toast } = useToast();
   const { organization, can } = useOrganization();
@@ -56,6 +62,7 @@ export function MembershipLifecycleActions({ row }: { row: MembershipRow }) {
     }
     toast({ title: "Membership extended", variant: "success" });
     setExtendOpen(false);
+    onChanged?.();
     router.refresh();
   };
 
@@ -69,6 +76,7 @@ export function MembershipLifecycleActions({ row }: { row: MembershipRow }) {
     }
     toast({ title: "Membership renewed", variant: "success" });
     setRenewOpen(false);
+    onChanged?.();
     router.push(`/memberships/active/${result.data.id}`);
     router.refresh();
   };

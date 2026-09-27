@@ -89,6 +89,8 @@ export interface MembershipRow {
   discount: number;
   finalAmount: number;
   freezeDaysUsed: number;
+  planDurationDays: number;
+  planMaxFreezeDays: number;
   notes: string | null;
 }
 
@@ -244,16 +246,20 @@ export async function loadPlanOptions(organizationId: string): Promise<SelectOpt
   if (!supabase) return [];
   const { data } = await supabase
     .from("membership_plans" as "gym_members")
-    .select("id, name, code, is_active")
+    .select("id, name, code, is_active, duration_days")
     .eq("organization_id", organizationId);
   return ((data ?? []) as unknown as Row[])
     .filter((row) => asBoolean(row.is_active, true))
-    .map((row) => ({
-      value: asString(row.id),
-      label: asNullableString(row.code)
-        ? `${asString(row.name)} (${asString(row.code)})`
-        : asString(row.name),
-    }));
+    .map((row) => {
+      const name = asString(row.name);
+      const code = asNullableString(row.code);
+      const duration = asNumber(row.duration_days);
+      const base = code ? `${name} (${code})` : name;
+      return {
+        value: asString(row.id),
+        label: duration > 0 ? `${base} · ${duration} days` : base,
+      };
+    });
 }
 
 export async function loadClassTemplateOptions(organizationId: string): Promise<SelectOption[]> {
@@ -294,9 +300,15 @@ export async function loadMembershipOptions(organizationId: string): Promise<Sel
 }
 
 const membershipSelect =
-  "id, organization_id, branch_id, member_id, plan_id, status, start_date, end_date, price, discount, final_amount, freeze_days_used, notes, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code), membership_plans(id, name, code)";
+  "id, organization_id, branch_id, member_id, plan_id, status, start_date, end_date, price, discount, final_amount, freeze_days_used, notes, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code), membership_plans(id, name, code, duration_days, max_freeze_days)";
+
+function embedRecord(value: unknown): Row | null {
+  if (!value) return null;
+  return (Array.isArray(value) ? value[0] : value) as Row | null;
+}
 
 function mapMembershipRow(row: Row): MembershipRow {
+  const plan = embedRecord(row.membership_plans);
   return {
     id: asString(row.id),
     organizationId: asString(row.organization_id),
@@ -313,6 +325,8 @@ function mapMembershipRow(row: Row): MembershipRow {
     discount: asNumber(row.discount),
     finalAmount: asNumber(row.final_amount),
     freezeDaysUsed: asNumber(row.freeze_days_used),
+    planDurationDays: asNumber(plan?.duration_days),
+    planMaxFreezeDays: asNumber(plan?.max_freeze_days),
     notes: asNullableString(row.notes),
   };
 }
@@ -327,6 +341,8 @@ function membershipFormValues(row: MembershipRow): ResourceValues {
     price: numberString(row.price, "0"),
     discount: numberString(row.discount, "0"),
     notes: row.notes ?? "",
+    status: row.status,
+    freezeDaysUsed: numberString(row.freezeDaysUsed, "0"),
   };
 }
 

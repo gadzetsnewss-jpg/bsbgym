@@ -202,6 +202,7 @@ export interface InvoiceListFilters {
   status?: string;
   branchId?: string;
   memberId?: string;
+  membershipId?: string;
   from?: string;
   to?: string;
   page?: number;
@@ -228,6 +229,7 @@ export async function fetchInvoices(
   if (filters.status && filters.status !== "all") query = query.eq("status" as "id", filters.status);
   if (filters.branchId && filters.branchId !== "all") query = query.eq("branch_id" as "id", filters.branchId);
   if (filters.memberId) query = query.eq("member_id" as "id", filters.memberId);
+  if (filters.membershipId) query = query.eq("membership_id" as "id", filters.membershipId);
   if (filters.from) query = query.gte("issue_date" as "created_at", filters.from);
   if (filters.to) query = query.lte("issue_date" as "created_at", filters.to);
   const search = filters.search?.trim();

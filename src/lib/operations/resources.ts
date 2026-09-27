@@ -114,7 +114,12 @@ const membershipFields = [
         optionsSource: "branches" as const,
         placeholder: "Select a branch",
       },
-      { name: "startDate", label: "Start date", type: "date" as const },
+      {
+        name: "startDate",
+        label: "Start date",
+        type: "date" as const,
+        hint: "Leave blank to start today. End date is calculated from the plan duration.",
+      },
       { name: "endDate", label: "End date", type: "date" as const, hint: "Leave blank to use the plan duration." },
       {
         name: "price",
@@ -127,6 +132,8 @@ const membershipFields = [
       },
       { name: "discount", label: "Discount", type: "number" as const, min: 0, step: 0.01, prefix: "₹", defaultValue: "0" },
       { name: "notes", label: "Notes", type: "textarea" as const, rows: 3, span: 2 as const },
+      { name: "status", label: "Status", readOnly: true, hidden: true },
+      { name: "freezeDaysUsed", label: "Freeze days used", readOnly: true, hidden: true },
     ],
   },
 ];
@@ -139,8 +146,12 @@ const membershipPermissions = {
 
 const membershipRowActions = (row: MembershipRow) => [
   ...(row.status === "active"
-    ? [{ label: "Freeze", href: `/memberships/freeze-extend/add?membershipId=${row.id}` }]
+    ? [
+        { label: "Freeze", href: `/memberships/freeze-extend/add?membershipId=${row.id}` },
+        { label: "Change plan", href: `/memberships/active/${row.id}/edit` },
+      ]
     : []),
+  { label: "Create invoice", href: `/billing/new-invoice?memberId=${row.memberId}&membershipId=${row.id}` },
   { label: "Change trainer", href: `/trainers/assignments/add?memberId=${row.memberId}` },
 ];
 
