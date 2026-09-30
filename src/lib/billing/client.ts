@@ -18,6 +18,7 @@ import type {
   PaymentRow,
   RefundRow,
 } from "@/lib/billing/types";
+import type { InvoicePlanOption } from "@/lib/billing/plan-item";
 
 type Row = Record<string, unknown>;
 type AnyTable = "gym_members";
@@ -91,7 +92,7 @@ const INVOICE_SELECT =
   "id, organization_id, branch_id, member_id, membership_id, invoice_number, status, issue_date, due_date, sub_total, discount, tax_total, cgst, sgst, igst, round_off, total, amount_paid, amount_credited, notes, place_of_supply, tax_mode, created_at, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code, phone, email, address_line1, address_line2, city, state, postal_code)";
 
 const ITEM_SELECT =
-  "id, description, item_type, quantity, unit_price, discount, tax_rate, taxable_amount, gst_amount, cgst, sgst, igst, line_total, sort_order, hsn_sac";
+  "id, description, item_type, quantity, unit_price, discount, tax_rate, taxable_amount, gst_amount, cgst, sgst, igst, line_total, sort_order, hsn_sac, plan_id, membership_plans(id, name, code)";
 
 function mapInvoice(row: Row): InvoiceRow {
   const member = embed(row.gym_members);
@@ -133,6 +134,7 @@ function mapInvoice(row: Row): InvoiceRow {
 }
 
 function mapItem(row: Row): InvoiceItemRow {
+  const plan = embed(row.membership_plans);
   return {
     id: asString(row.id),
     description: asString(row.description),
@@ -149,6 +151,8 @@ function mapItem(row: Row): InvoiceItemRow {
     lineTotal: asNumber(row.line_total),
     sortOrder: asNumber(row.sort_order),
     hsnSac: asNullableString(row.hsn_sac),
+    planId: asNullableString(row.plan_id) ?? asNullableString(plan?.id),
+    planName: asNullableString(plan?.name),
   };
 }
 
@@ -282,6 +286,7 @@ export interface InvoiceItemInput {
   discount: number;
   taxRate: number;
   hsnSac?: string | null;
+  planId?: string | null;
 }
 
 export async function createInvoice(input: {
@@ -317,6 +322,7 @@ export async function createInvoice(input: {
       discount: item.discount,
       tax_rate: item.taxRate,
       hsn_sac: item.hsnSac ?? null,
+      plan_id: item.planId ?? null,
     })),
     p_issue: input.issue,
   });
@@ -763,6 +769,7 @@ export async function fetchMemberForInvoice(
     branchId: string;
     membership: {
       id: string;
+      planId: string | null;
       planName: string;
       startDate: string;
       endDate: string;
@@ -784,7 +791,7 @@ export async function fetchMemberForInvoice(
 
   let membershipQuery = supabase
     .from("memberships" as AnyTable)
-    .select("id, status, start_date, end_date, membership_plans(name)")
+    .select("id, plan_id, status, start_date, end_date, membership_plans(id, name)")
     .eq("organization_id", organizationId)
     .eq("member_id" as "id", memberId)
     .order("end_date" as "created_at", { ascending: false })
@@ -809,6 +816,9 @@ export async function fetchMemberForInvoice(
       membership: membership
         ? {
             id: asString(membership.id),
+            planId:
+              asNullableString(membership.plan_id) ??
+              asNullableString(embed(membership.membership_plans)?.id),
             planName: asString(embed(membership.membership_plans)?.name) || "Plan",
             startDate: asString(membership.start_date),
             endDate: asString(membership.end_date),
@@ -816,6 +826,34 @@ export async function fetchMemberForInvoice(
           }
         : null,
     },
+    error: null,
+  };
+}
+
+export async function fetchMembershipPlansForInvoice(
+  organizationId: string,
+): Promise<OrgResult<InvoicePlanOption[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("membership_plans" as AnyTable)
+    .select("id, name, code, description, duration_days, price, signup_fee, tax_rate, is_active, sort_order")
+    .eq("organization_id", organizationId)
+    .order("sort_order" as "created_at", { ascending: true });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Row[])
+      .filter((row) => row.is_active !== false)
+      .map((row) => ({
+        id: asString(row.id),
+        name: asString(row.name),
+        code: asString(row.code),
+        description: asNullableString(row.description),
+        durationDays: asNumber(row.duration_days),
+        price: asNumber(row.price),
+        signupFee: asNumber(row.signup_fee),
+        taxRate: asNumber(row.tax_rate),
+      })),
     error: null,
   };
 }

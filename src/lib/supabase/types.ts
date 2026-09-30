@@ -1144,6 +1144,7 @@ export interface Database {
         line_total: number;
         sort_order: number;
         hsn_sac: string | null;
+        plan_id: string | null;
         created_at: string;
       }>;
       payments: ModuleTable<{

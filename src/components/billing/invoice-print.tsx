@@ -123,7 +123,10 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
           <tbody>
             {(invoice.items ?? []).map((item) => (
               <tr key={item.id} className="border-b border-border">
-                <td className="py-2">{item.description}</td>
+                <td className="py-2">
+                  <div>{item.description}</div>
+                  {item.planName ? <div className="text-xs text-neutral-500">{item.planName}</div> : null}
+                </td>
                 <td className="py-2">{item.hsnSac ?? "—"}</td>
                 <td className="py-2">{item.quantity}</td>
                 <td className="py-2 text-right tabular-nums">{formatCurrency(item.unitPrice, currency)}</td>

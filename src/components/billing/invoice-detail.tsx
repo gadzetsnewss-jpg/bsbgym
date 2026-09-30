@@ -192,7 +192,12 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           <tbody>
             {(invoice.items ?? []).map((item) => (
               <tr key={item.id} className="border-b border-border last:border-0">
-                <td className="px-5 py-3">{item.description}</td>
+                <td className="px-5 py-3">
+                  <div>{item.description}</div>
+                  {item.planName ? (
+                    <div className="text-xs text-neutral-500">{item.planName}</div>
+                  ) : null}
+                </td>
                 <td className="px-5 py-3">{item.hsnSac ?? "—"}</td>
                 <td className="px-5 py-3">{item.quantity}</td>
                 <td className="px-5 py-3 text-right tabular-nums">{formatCurrency(item.unitPrice, currency)}</td>

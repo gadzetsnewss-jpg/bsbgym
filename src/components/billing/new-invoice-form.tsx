@@ -15,7 +15,13 @@ import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
-import { createInvoice, fetchGstRates, fetchMemberForInvoice, recordPayment } from "@/lib/billing/client";
+import {
+  createInvoice,
+  fetchGstRates,
+  fetchMemberForInvoice,
+  fetchMembershipPlansForInvoice,
+  recordPayment,
+} from "@/lib/billing/client";
 import {
   calculateInvoiceTotals,
   calculateLineGst,
@@ -30,11 +36,19 @@ import {
   PAYMENT_METHODS,
   PAYMENT_METHOD_LABELS,
 } from "@/lib/billing/types";
+import {
+  planItemDefaults,
+  planOptionLabel,
+  requiresMembershipPlan,
+  showsPlanSelector,
+  type InvoicePlanOption,
+} from "@/lib/billing/plan-item";
 import type { SelectOption } from "@/components/ui/select";
 
 interface DraftItem {
   description: string;
   itemType: string;
+  planId: string;
   quantity: string;
   unitPrice: string;
   discount: string;
@@ -45,6 +59,7 @@ interface DraftItem {
 const emptyItem = (taxRate = "18", hsnSac = ""): DraftItem => ({
   description: "",
   itemType: "membership",
+  planId: "",
   quantity: "1",
   unitPrice: "",
   discount: "0",
@@ -63,6 +78,7 @@ export function NewInvoiceForm() {
   const presetMembershipId = searchParams.get("membershipId") ?? "";
 
   const [members, setMembers] = React.useState<SelectOption[]>([]);
+  const [plans, setPlans] = React.useState<InvoicePlanOption[]>([]);
   const [gstRates, setGstRates] = React.useState<{ name: string; rate: number; hsnSac: string | null; isDefault: boolean }[]>([]);
   const [memberId, setMemberId] = React.useState(presetMemberId);
   const [branchId, setBranchId] = React.useState(currentBranchId ?? branches[0]?.id ?? "");
@@ -80,10 +96,18 @@ export function NewInvoiceForm() {
   const [member, setMember] = React.useState<Awaited<ReturnType<typeof fetchMemberForInvoice>>["data"]>(null);
   const [saving, setSaving] = React.useState<"draft" | "issue" | "pay" | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
 
   React.useEffect(() => {
     if (!orgId) return;
     void loadMemberOptions(orgId).then(setMembers);
+    void fetchMembershipPlansForInvoice(orgId).then((result) => {
+      if (result.error) {
+        setLoadError(result.error.message);
+        return;
+      }
+      setPlans(result.data ?? []);
+    });
     void fetchGstRates(orgId).then((result) => {
       if (result.data) {
         setGstRates(result.data);
@@ -114,20 +138,6 @@ export function NewInvoiceForm() {
       const next = result.data;
       setMember(next);
       if (next.branchId) setBranchId(next.branchId);
-      if (next.membership) {
-        setItems((prev) =>
-          prev[0]?.description
-            ? prev
-            : [
-                {
-                  ...prev[0],
-                  description: `${next.membership!.planName} membership`,
-                  itemType: "membership",
-                },
-                ...prev.slice(1),
-              ],
-        );
-      }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orgId, memberId, presetMembershipId]);
@@ -145,22 +155,87 @@ export function NewInvoiceForm() {
   );
   const totals = calculateInvoiceTotals(computed, Number(roundOff) || 0);
 
+  const defaultGst = gstRates.find((rate) => rate.isDefault) ?? gstRates[0];
+
+  const applyPlanToItem = (item: DraftItem, planId: string): DraftItem => {
+    const plan = plans.find((option) => option.id === planId);
+    if (!plan) return { ...item, planId };
+    const defaults = planItemDefaults(plan);
+    const gstMatch =
+      plan.taxRate > 0
+        ? gstRates.find((rate) => rate.rate === plan.taxRate) ??
+          gstRates.find((rate) => String(rate.rate) === defaults.taxRate)
+        : undefined;
+    const taxRate =
+      gstMatch
+        ? String(gstMatch.rate)
+        : defaults.taxRate || item.taxRate || (defaultGst ? String(defaultGst.rate) : item.taxRate);
+    return {
+      ...item,
+      planId,
+      description: defaults.description,
+      unitPrice: defaults.unitPrice,
+      taxRate,
+      hsnSac: item.hsnSac || gstMatch?.hsnSac || item.hsnSac,
+    };
+  };
+
   const updateItem = (index: number, patch: Partial<DraftItem>) => {
-    setItems((prev) => prev.map((item, i) => (i === index ? { ...item, ...patch } : item)));
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch)) delete next[`item.${index}.${key}`];
+      return next;
+    });
+    setItems((prev) =>
+      prev.map((item, i) => {
+        if (i !== index) return item;
+        let next = { ...item, ...patch };
+        if (patch.planId !== undefined) next = applyPlanToItem(next, patch.planId);
+        if (patch.itemType && !showsPlanSelector(patch.itemType)) {
+          next = { ...next, planId: "" };
+        }
+        return next;
+      }),
+    );
+  };
+
+  const validateDraft = (): boolean => {
+    const nextErrors: Record<string, string> = {};
+    if (!memberId) nextErrors.memberId = "Select a member.";
+    if (!branchId) nextErrors.branchId = "Select a branch.";
+    items.forEach((item, index) => {
+      if (!item.description.trim()) nextErrors[`item.${index}.description`] = "Description is required.";
+      if (requiresMembershipPlan(item.itemType) && !item.planId) {
+        nextErrors[`item.${index}.planId`] = "Select a membership plan.";
+      }
+      const quantity = Number(item.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        nextErrors[`item.${index}.quantity`] = "Quantity must be greater than zero.";
+      }
+      const unitPrice = Number(item.unitPrice);
+      if (item.unitPrice.trim() === "" || !Number.isFinite(unitPrice) || unitPrice < 0) {
+        nextErrors[`item.${index}.unitPrice`] = "Rate must be a valid amount.";
+      }
+      const discount = Number(item.discount);
+      if (!Number.isFinite(discount) || discount < 0) {
+        nextErrors[`item.${index}.discount`] = "Discount cannot be negative.";
+      }
+      if (Number.isFinite(quantity) && Number.isFinite(unitPrice) && Number.isFinite(discount)) {
+        const gross = quantity * unitPrice;
+        if (discount > gross) nextErrors[`item.${index}.discount`] = "Discount cannot exceed the line amount.";
+      }
+    });
+    if (computed.every((line) => line.lineTotal <= 0) && !nextErrors[`item.0.unitPrice`]) {
+      nextErrors.items = "Add at least one invoice item with a valid amount.";
+    }
+    setFieldErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
 
   const submit = async (mode: "draft" | "issue" | "pay") => {
     if (!orgId) return;
-    if (!memberId) {
-      toast({ title: "Select a member", variant: "error" });
-      return;
-    }
-    if (!branchId) {
-      toast({ title: "Select a branch", variant: "error" });
-      return;
-    }
-    if (computed.every((line) => line.lineTotal <= 0)) {
-      toast({ title: "Add at least one invoice item", variant: "error" });
+    if (!validateDraft()) {
+      toast({ title: "Check the highlighted fields", variant: "error" });
       return;
     }
     setSaving(mode);
@@ -184,6 +259,7 @@ export function NewInvoiceForm() {
         discount: Number(item.discount) || 0,
         taxRate: Number(item.taxRate) || 0,
         hsnSac: item.hsnSac.trim() || null,
+        planId: item.planId || null,
       })),
     });
     if (result.error) {
@@ -248,18 +324,34 @@ export function NewInvoiceForm() {
 
       <FormSection title="Customer" columns={1}>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <FormField label="Member" required>
+          <FormField label="Member" required error={fieldErrors.memberId}>
             <Select
               value={memberId}
               placeholder="Search / select a member"
-              onChange={(event) => setMemberId(event.target.value)}
+              invalid={Boolean(fieldErrors.memberId)}
+              onChange={(event) => {
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.memberId;
+                  return next;
+                });
+                setMemberId(event.target.value);
+              }}
               options={members}
             />
           </FormField>
-          <FormField label="Branch" required>
+          <FormField label="Branch" required error={fieldErrors.branchId}>
             <Select
               value={branchId}
-              onChange={(event) => setBranchId(event.target.value)}
+              invalid={Boolean(fieldErrors.branchId)}
+              onChange={(event) => {
+                setFieldErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.branchId;
+                  return next;
+                });
+                setBranchId(event.target.value);
+              }}
               options={branches.map((branch) => ({ value: branch.id, label: `${branch.name} (${branch.code})` }))}
             />
           </FormField>
@@ -288,26 +380,33 @@ export function NewInvoiceForm() {
 
       <FormSection title="Membership" columns={1}>
         {member?.membership ? (
-          <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-4">
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Plan</dt>
-              <dd className="text-ink">{member.membership.planName}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Start</dt>
-              <dd className="text-ink">{formatDate(member.membership.startDate)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">End</dt>
-              <dd className="text-ink">{formatDate(member.membership.endDate)}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Status</dt>
-              <dd className="text-ink">{member.membership.status}</dd>
-            </div>
-          </dl>
+          <div className="space-y-2">
+            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-4">
+              <div>
+                <dt className="text-xs text-neutral-500 uppercase">Current plan</dt>
+                <dd className="text-ink">{member.membership.planName}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-neutral-500 uppercase">Start</dt>
+                <dd className="text-ink">{formatDate(member.membership.startDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-neutral-500 uppercase">End</dt>
+                <dd className="text-ink">{formatDate(member.membership.endDate)}</dd>
+              </div>
+              <div>
+                <dt className="text-xs text-neutral-500 uppercase">Status</dt>
+                <dd className="text-ink">{member.membership.status}</dd>
+              </div>
+            </dl>
+            <p className="text-sm text-neutral-500">
+              This membership is shown for context only. Selecting a plan on an invoice item does not overwrite or create a membership.
+            </p>
+          </div>
         ) : (
-          <p className="text-sm text-neutral-500">No active membership on this member. You can still invoice other charges.</p>
+          <p className="text-sm text-neutral-500">
+            No active membership on this member. You can still invoice other charges. For a Membership item, select a plan in Invoice items. Selecting a plan does not create a membership.
+          </p>
         )}
       </FormSection>
 
@@ -327,12 +426,16 @@ export function NewInvoiceForm() {
             Add item
           </Button>
         </div>
+        {fieldErrors.items ? (
+          <p role="alert" className="text-xs font-medium text-red-600">{fieldErrors.items}</p>
+        ) : null}
         <div className="overflow-x-auto">
           <table className="min-w-full text-sm">
             <thead className="text-left text-xs tracking-wide text-neutral-500 uppercase">
               <tr>
                 <th className="pb-2">Description</th>
                 <th className="pb-2">Type</th>
+                <th className="pb-2">Plan</th>
                 <th className="pb-2">HSN / SAC</th>
                 <th className="pb-2">Qty</th>
                 <th className="pb-2">Rate</th>
@@ -343,17 +446,58 @@ export function NewInvoiceForm() {
               </tr>
             </thead>
             <tbody>
-              {items.map((item, index) => (
+              {items.map((item, index) => {
+                const gstOptions = gstRates.length
+                  ? gstRates.map((rate) => ({ value: String(rate.rate), label: `${rate.name} (${rate.rate}%)` }))
+                  : [
+                      { value: "0", label: "0%" },
+                      { value: "5", label: "5%" },
+                      { value: "12", label: "12%" },
+                      { value: "18", label: "18%" },
+                      { value: "28", label: "28%" },
+                    ];
+                if (item.taxRate && !gstOptions.some((option) => option.value === item.taxRate)) {
+                  gstOptions.unshift({ value: item.taxRate, label: `${item.taxRate}%` });
+                }
+                return (
                 <tr key={index} className="align-top">
-                  <td className="py-2 pr-2">
-                    <Input value={item.description} onChange={(event) => updateItem(index, { description: event.target.value })} />
+                  <td className="py-2 pr-2 min-w-40">
+                    <Input
+                      value={item.description}
+                      invalid={Boolean(fieldErrors[`item.${index}.description`])}
+                      onChange={(event) => updateItem(index, { description: event.target.value })}
+                    />
+                    {fieldErrors[`item.${index}.description`] ? (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.description`]}</p>
+                    ) : null}
                   </td>
-                  <td className="py-2 pr-2">
+                  <td className="py-2 pr-2 w-40">
                     <Select
                       value={item.itemType}
                       onChange={(event) => updateItem(index, { itemType: event.target.value })}
                       options={INVOICE_ITEM_TYPES.map((type) => ({ value: type, label: INVOICE_ITEM_TYPE_LABELS[type] }))}
                     />
+                  </td>
+                  <td className="py-2 pr-2 min-w-52">
+                    {showsPlanSelector(item.itemType) ? (
+                      <>
+                        <Select
+                          value={item.planId}
+                          placeholder={plans.length ? "Select a membership plan" : "No active plans"}
+                          invalid={Boolean(fieldErrors[`item.${index}.planId`])}
+                          onChange={(event) => updateItem(index, { planId: event.target.value })}
+                          options={plans.map((plan) => ({
+                            value: plan.id,
+                            label: planOptionLabel(plan, (value) => formatCurrency(value, currency)),
+                          }))}
+                        />
+                        {fieldErrors[`item.${index}.planId`] ? (
+                          <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.planId`]}</p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="block h-10 text-sm text-neutral-400">—</span>
+                    )}
                   </td>
                   <td className="py-2 pr-2 w-28">
                     <Input
@@ -363,13 +507,43 @@ export function NewInvoiceForm() {
                     />
                   </td>
                   <td className="py-2 pr-2 w-20">
-                    <Input type="number" min={0.001} step={0.001} value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} />
+                    <Input
+                      type="number"
+                      min={0.001}
+                      step={0.001}
+                      value={item.quantity}
+                      invalid={Boolean(fieldErrors[`item.${index}.quantity`])}
+                      onChange={(event) => updateItem(index, { quantity: event.target.value })}
+                    />
+                    {fieldErrors[`item.${index}.quantity`] ? (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.quantity`]}</p>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-2 w-28">
-                    <Input type="number" min={0} step={0.01} value={item.unitPrice} onChange={(event) => updateItem(index, { unitPrice: event.target.value })} />
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.unitPrice}
+                      invalid={Boolean(fieldErrors[`item.${index}.unitPrice`])}
+                      onChange={(event) => updateItem(index, { unitPrice: event.target.value })}
+                    />
+                    {fieldErrors[`item.${index}.unitPrice`] ? (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.unitPrice`]}</p>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-2 w-24">
-                    <Input type="number" min={0} step={0.01} value={item.discount} onChange={(event) => updateItem(index, { discount: event.target.value })} />
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.discount}
+                      invalid={Boolean(fieldErrors[`item.${index}.discount`])}
+                      onChange={(event) => updateItem(index, { discount: event.target.value })}
+                    />
+                    {fieldErrors[`item.${index}.discount`] ? (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.discount`]}</p>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-2 w-24">
                     <Select
@@ -382,17 +556,7 @@ export function NewInvoiceForm() {
                           hsnSac: item.hsnSac || match?.hsnSac || "",
                         });
                       }}
-                      options={
-                        gstRates.length
-                          ? gstRates.map((rate) => ({ value: String(rate.rate), label: `${rate.name} (${rate.rate}%)` }))
-                          : [
-                              { value: "0", label: "0%" },
-                              { value: "5", label: "5%" },
-                              { value: "12", label: "12%" },
-                              { value: "18", label: "18%" },
-                              { value: "28", label: "28%" },
-                            ]
-                      }
+                      options={gstOptions}
                     />
                   </td>
                   <td className="py-2 pr-2 text-right tabular-nums">{formatCurrency(computed[index]?.lineTotal ?? 0, currency)}</td>
@@ -404,7 +568,8 @@ export function NewInvoiceForm() {
                     )}
                   </td>
                 </tr>
-              ))}
+              );
+              })}
             </tbody>
           </table>
         </div>

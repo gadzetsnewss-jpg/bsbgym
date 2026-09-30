@@ -107,6 +107,8 @@ export interface InvoiceItemRow {
   lineTotal: number;
   sortOrder: number;
   hsnSac: string | null;
+  planId: string | null;
+  planName: string | null;
 }
 
 export interface InvoiceRow {
