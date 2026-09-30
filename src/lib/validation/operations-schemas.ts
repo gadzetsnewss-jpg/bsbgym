@@ -82,6 +82,12 @@ export const BOOKING_STATUSES = [
   { value: "cancelled", label: "Cancelled" },
 ] as const;
 
+export const CLASS_SESSION_STATUSES = [
+  { value: "scheduled", label: "Scheduled" },
+  { value: "completed", label: "Completed" },
+  { value: "cancelled", label: "Cancelled" },
+] as const;
+
 export const membershipFormSchema = z
   .object({
     branchId: z.string().min(1, "Select a branch"),
@@ -135,17 +141,38 @@ export const ptSessionFormSchema = z.object({
   notes: optionalLongText,
 });
 
+export const classSessionFormSchema = z
+  .object({
+    branchId: z.string().min(1, "Select a branch"),
+    classTemplateId: z.string().min(1, "Select a class"),
+    trainerId: z.string().optional().or(z.literal("")),
+    startsAt: z.string().trim().min(1, "Start time is required"),
+    endsAt: z.string().trim().optional().or(z.literal("")),
+    capacity: optionalNumberField({ min: 0 }),
+    status: z.enum(["scheduled", "completed", "cancelled"]).optional(),
+    notes: optionalLongText,
+  })
+  .refine((data) => endOnOrAfterStart(data.startsAt ?? "", data.endsAt ?? ""), {
+    message: "End time cannot be before start time",
+    path: ["endsAt"],
+  });
+
 export const classBookingFormSchema = z
   .object({
     branchId: z.string().min(1, "Select a branch"),
     memberId: z.string().min(1, "Select a member"),
-    classTemplateId: z.string().min(1, "Select a class"),
+    classSessionId: z.string().optional().or(z.literal("")),
+    classTemplateId: z.string().optional().or(z.literal("")),
     trainerId: z.string().optional().or(z.literal("")),
     startsAt: z.string().trim().optional().or(z.literal("")),
     endsAt: z.string().trim().optional().or(z.literal("")),
     capacity: optionalNumberField({ min: 0 }),
     status: z.enum(["booked", "waitlisted", "attended", "no_show", "cancelled"]),
     notes: optionalLongText,
+  })
+  .refine((data) => Boolean((data.classSessionId ?? "").trim() || (data.classTemplateId ?? "").trim()), {
+    message: "Select a scheduled session or a class template",
+    path: ["classSessionId"],
   })
   .refine((data) => endOnOrAfterStart(data.startsAt ?? "", data.endsAt ?? ""), {
     message: "End time cannot be before start time",

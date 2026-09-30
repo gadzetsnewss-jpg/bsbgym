@@ -7,6 +7,7 @@ import {
   attendanceFormSchema,
   bodyMeasurementFormSchema,
   classBookingFormSchema,
+  classSessionFormSchema,
   dietPlanFormSchema,
   membershipFormSchema,
   membershipFreezeFormSchema,
@@ -132,11 +133,37 @@ describe("ptSessionFormSchema", () => {
   });
 });
 
+describe("classSessionFormSchema", () => {
+  const valid = {
+    branchId: "11111111-1111-1111-1111-111111111111",
+    classTemplateId: "33333333-3333-3333-3333-333333333333",
+    trainerId: "",
+    startsAt: "2026-09-17T10:00",
+    endsAt: "2026-09-17T11:00",
+    capacity: "20",
+    notes: "",
+  };
+
+  it("accepts a scheduled session", () => {
+    expect(classSessionFormSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("requires a class and start time", () => {
+    const result = classSessionFormSchema.safeParse({
+      ...valid,
+      classTemplateId: "",
+      startsAt: "",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("classBookingFormSchema", () => {
   const valid = {
     branchId: "11111111-1111-1111-1111-111111111111",
     memberId: "22222222-2222-2222-2222-222222222222",
-    classTemplateId: "33333333-3333-3333-3333-333333333333",
+    classSessionId: "44444444-4444-4444-4444-444444444444",
+    classTemplateId: "",
     trainerId: "",
     startsAt: "2026-09-17T10:00",
     endsAt: "2026-09-17T11:00",
@@ -147,6 +174,25 @@ describe("classBookingFormSchema", () => {
 
   it("accepts a booked class", () => {
     expect(classBookingFormSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("accepts a template-only booking when no session is selected", () => {
+    expect(
+      classBookingFormSchema.safeParse({
+        ...valid,
+        classSessionId: "",
+        classTemplateId: "33333333-3333-3333-3333-333333333333",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a booking without a session or template", () => {
+    const result = classBookingFormSchema.safeParse({
+      ...valid,
+      classSessionId: "",
+      classTemplateId: "",
+    });
+    expect(result.success).toBe(false);
   });
 
   it("accepts waitlisted status", () => {

@@ -49,6 +49,8 @@ describe("gym members client", () => {
     expect(client).toMatch(/\.eq\("member_id" as "id", memberId\)/);
     expect(client).toMatch(/\.from\("trainer_assignments"/);
     expect(client).toMatch(/\.from\("workout_plans"/);
+    expect(client).toMatch(/\.from\("class_bookings"/);
+    expect(client).toMatch(/\.from\("class_sessions"/);
     expect(client).toMatch(/\.from\("audit_logs"/);
     expect(client).toMatch(/\.eq\("target_type", "gym_member"\)/);
     expect(client).toMatch(/\.from\("trainers"/);

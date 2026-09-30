@@ -39,15 +39,17 @@ interface DraftItem {
   unitPrice: string;
   discount: string;
   taxRate: string;
+  hsnSac: string;
 }
 
-const emptyItem = (taxRate = "18"): DraftItem => ({
+const emptyItem = (taxRate = "18", hsnSac = ""): DraftItem => ({
   description: "",
   itemType: "membership",
   quantity: "1",
   unitPrice: "",
   discount: "0",
   taxRate,
+  hsnSac,
 });
 
 export function NewInvoiceForm() {
@@ -61,7 +63,7 @@ export function NewInvoiceForm() {
   const presetMembershipId = searchParams.get("membershipId") ?? "";
 
   const [members, setMembers] = React.useState<SelectOption[]>([]);
-  const [gstRates, setGstRates] = React.useState<{ name: string; rate: number; isDefault: boolean }[]>([]);
+  const [gstRates, setGstRates] = React.useState<{ name: string; rate: number; hsnSac: string | null; isDefault: boolean }[]>([]);
   const [memberId, setMemberId] = React.useState(presetMemberId);
   const [branchId, setBranchId] = React.useState(currentBranchId ?? branches[0]?.id ?? "");
   const [issueDate, setIssueDate] = React.useState(new Date().toISOString().slice(0, 10));
@@ -86,7 +88,15 @@ export function NewInvoiceForm() {
       if (result.data) {
         setGstRates(result.data);
         const def = result.data.find((rate) => rate.isDefault) ?? result.data[0];
-        if (def) setItems((prev) => prev.map((item) => ({ ...item, taxRate: item.taxRate || String(def.rate) })));
+        if (def) {
+          setItems((prev) =>
+            prev.map((item) => ({
+              ...item,
+              taxRate: item.taxRate || String(def.rate),
+              hsnSac: item.hsnSac || def.hsnSac || "",
+            })),
+          );
+        }
       }
     });
   }, [orgId]);
@@ -173,6 +183,7 @@ export function NewInvoiceForm() {
         unitPrice: Number(item.unitPrice) || 0,
         discount: Number(item.discount) || 0,
         taxRate: Number(item.taxRate) || 0,
+        hsnSac: item.hsnSac.trim() || null,
       })),
     });
     if (result.error) {
@@ -307,7 +318,10 @@ export function NewInvoiceForm() {
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => setItems((prev) => [...prev, emptyItem(gstRates.find((rate) => rate.isDefault)?.rate.toString() ?? "18")])}
+            onClick={() => {
+              const def = gstRates.find((rate) => rate.isDefault) ?? gstRates[0];
+              setItems((prev) => [...prev, emptyItem(def?.rate.toString() ?? "18", def?.hsnSac ?? "")]);
+            }}
           >
             <Plus aria-hidden="true" className="size-4" />
             Add item
@@ -319,6 +333,7 @@ export function NewInvoiceForm() {
               <tr>
                 <th className="pb-2">Description</th>
                 <th className="pb-2">Type</th>
+                <th className="pb-2">HSN / SAC</th>
                 <th className="pb-2">Qty</th>
                 <th className="pb-2">Rate</th>
                 <th className="pb-2">Discount</th>
@@ -340,6 +355,13 @@ export function NewInvoiceForm() {
                       options={INVOICE_ITEM_TYPES.map((type) => ({ value: type, label: INVOICE_ITEM_TYPE_LABELS[type] }))}
                     />
                   </td>
+                  <td className="py-2 pr-2 w-28">
+                    <Input
+                      value={item.hsnSac}
+                      maxLength={20}
+                      onChange={(event) => updateItem(index, { hsnSac: event.target.value })}
+                    />
+                  </td>
                   <td className="py-2 pr-2 w-20">
                     <Input type="number" min={0.001} step={0.001} value={item.quantity} onChange={(event) => updateItem(index, { quantity: event.target.value })} />
                   </td>
@@ -352,7 +374,14 @@ export function NewInvoiceForm() {
                   <td className="py-2 pr-2 w-24">
                     <Select
                       value={item.taxRate}
-                      onChange={(event) => updateItem(index, { taxRate: event.target.value })}
+                      onChange={(event) => {
+                        const nextRate = event.target.value;
+                        const match = gstRates.find((rate) => String(rate.rate) === nextRate);
+                        updateItem(index, {
+                          taxRate: nextRate,
+                          hsnSac: item.hsnSac || match?.hsnSac || "",
+                        });
+                      }}
                       options={
                         gstRates.length
                           ? gstRates.map((rate) => ({ value: String(rate.rate), label: `${rate.name} (${rate.rate}%)` }))

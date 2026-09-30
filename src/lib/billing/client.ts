@@ -91,7 +91,7 @@ const INVOICE_SELECT =
   "id, organization_id, branch_id, member_id, membership_id, invoice_number, status, issue_date, due_date, sub_total, discount, tax_total, cgst, sgst, igst, round_off, total, amount_paid, amount_credited, notes, place_of_supply, tax_mode, created_at, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code, phone, email, address_line1, address_line2, city, state, postal_code)";
 
 const ITEM_SELECT =
-  "id, description, item_type, quantity, unit_price, discount, tax_rate, taxable_amount, gst_amount, cgst, sgst, igst, line_total, sort_order";
+  "id, description, item_type, quantity, unit_price, discount, tax_rate, taxable_amount, gst_amount, cgst, sgst, igst, line_total, sort_order, hsn_sac";
 
 function mapInvoice(row: Row): InvoiceRow {
   const member = embed(row.gym_members);
@@ -148,6 +148,7 @@ function mapItem(row: Row): InvoiceItemRow {
     igst: asNumber(row.igst),
     lineTotal: asNumber(row.line_total),
     sortOrder: asNumber(row.sort_order),
+    hsnSac: asNullableString(row.hsn_sac),
   };
 }
 
@@ -280,6 +281,7 @@ export interface InvoiceItemInput {
   unitPrice: number;
   discount: number;
   taxRate: number;
+  hsnSac?: string | null;
 }
 
 export async function createInvoice(input: {
@@ -314,6 +316,7 @@ export async function createInvoice(input: {
       unit_price: item.unitPrice,
       discount: item.discount,
       tax_rate: item.taxRate,
+      hsn_sac: item.hsnSac ?? null,
     })),
     p_issue: input.issue,
   });
@@ -558,6 +561,25 @@ export async function fetchRefunds(organizationId: string): Promise<OrgResult<Re
   };
 }
 
+export async function fetchPayment(
+  organizationId: string,
+  paymentId: string,
+): Promise<OrgResult<PaymentRow>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("payments" as AnyTable)
+    .select(
+      "id, organization_id, branch_id, invoice_id, member_id, amount, method, reference, paid_at, notes, created_by, invoices(invoice_number), gym_members(full_name, first_name, last_name, code)",
+    )
+    .eq("organization_id", organizationId)
+    .eq("id", paymentId)
+    .maybeSingle();
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  if (!data) return { data: null, error: { message: "That item could not be found." } };
+  return { data: mapPayment(data as unknown as Row), error: null };
+}
+
 export async function fetchInvoicePayments(
   organizationId: string,
   invoiceId: string,
@@ -798,12 +820,12 @@ export async function fetchMemberForInvoice(
   };
 }
 
-export async function fetchGstRates(organizationId: string): Promise<OrgResult<{ id: string; name: string; rate: number; isDefault: boolean }[]>> {
+export async function fetchGstRates(organizationId: string): Promise<OrgResult<{ id: string; name: string; rate: number; hsnSac: string | null; isDefault: boolean }[]>> {
   const supabase = clientOrNull();
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("gst_rates" as AnyTable)
-    .select("id, name, rate, is_default, is_active")
+    .select("id, name, rate, hsn_sac, is_default, is_active")
     .eq("organization_id", organizationId)
     .order("rate" as "created_at", { ascending: true });
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
@@ -814,6 +836,7 @@ export async function fetchGstRates(organizationId: string): Promise<OrgResult<{
         id: asString(row.id),
         name: asString(row.name),
         rate: asNumber(row.rate),
+        hsnSac: asNullableString(row.hsn_sac),
         isDefault: Boolean(row.is_default),
       })),
     error: null,

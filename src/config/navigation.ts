@@ -308,6 +308,13 @@ export const NAV_SECTIONS: NavSection[] = [
         permission: "classes.view",
       },
       {
+        title: "Class Templates",
+        href: "/classes/templates",
+        icon: Layers,
+        description: "Reusable class templates.",
+        permission: "classes.view",
+      },
+      {
         title: "Bookings",
         href: "/classes/bookings",
         icon: BookOpen,

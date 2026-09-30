@@ -9,6 +9,7 @@ import {
   Activity,
   BadgeCheck,
   CalendarCheck,
+  CalendarDays,
   ClipboardList,
   HeartPulse,
   Hourglass,
@@ -18,6 +19,7 @@ import {
   Snowflake,
   UserCheck,
 } from "lucide-react";
+import { createElement } from "react";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import { fromZod } from "@/lib/crud/validate";
 import type { ResourceConfig } from "@/lib/crud/types";
@@ -27,7 +29,9 @@ import {
   attendanceAdapter,
   bodyMeasurementAdapter,
   classBookingAdapter,
+  classSessionAdapter,
   dietPlanAdapter,
+  loadClassSessionOptions,
   loadClassTemplateOptions,
   loadMemberOptions,
   loadMembershipOptions,
@@ -42,6 +46,7 @@ import {
   type AttendanceRow,
   type BodyMeasurementRow,
   type ClassBookingRow,
+  type ClassSessionRow,
   type DietPlanRow,
   type MembershipFreezeRow,
   type MembershipRow,
@@ -53,10 +58,12 @@ import {
 import {
   ATTENDANCE_METHODS,
   BOOKING_STATUSES,
+  CLASS_SESSION_STATUSES,
   PT_SESSION_STATUSES,
   attendanceFormSchema,
   bodyMeasurementFormSchema,
   classBookingFormSchema,
+  classSessionFormSchema,
   dietPlanFormSchema,
   membershipFormSchema,
   membershipFreezeFormSchema,
@@ -65,6 +72,7 @@ import {
   trainerAssignmentFormSchema,
   workoutPlanFormSchema,
 } from "@/lib/validation/operations-schemas";
+import { FreezeAllowanceHint } from "@/components/memberships/freeze-allowance-hint";
 
 const ACTIVE_FILTER = [
   { value: "true", label: "Active" },
@@ -220,6 +228,8 @@ export const membershipFreezeResource: ResourceConfig<MembershipFreezeRow> = {
   emptyDescription: "Freeze an active membership to pause and extend it.",
   createLabel: "Record freeze",
   billingHandoff: "freeze",
+  formExtras: ({ values, organizationId }) =>
+    createElement(FreezeAllowanceHint, { values, organizationId }),
   columns: [
     { id: "member", header: "Member", accessor: (row) => row.memberName },
     { id: "plan", header: "Plan", accessor: (row) => row.planName, format: "muted" },
@@ -267,7 +277,26 @@ export const attendanceResource: ResourceConfig<AttendanceRow> = {
   },
   searchPlaceholder: "Search attendance notes or method",
   emptyDescription: "Record a check-in to start tracking attendance.",
+  defaultFilters: { day: "today" },
   filters: [
+    {
+      name: "day",
+      label: "Day",
+      allLabel: "All days",
+      options: [{ value: "today", label: "Today" }],
+    },
+    {
+      name: "branchId",
+      label: "Branch",
+      allLabel: "All branches",
+      optionsSource: "branches",
+    },
+    {
+      name: "open",
+      label: "In gym",
+      allLabel: "All visits",
+      options: [{ value: "open", label: "In gym now" }],
+    },
     {
       name: "method",
       label: "Method",
@@ -472,11 +501,20 @@ const bookingFields = [
         loadOptions: ({ organizationId }: { organizationId: string }) => loadMemberOptions(organizationId),
       },
       {
-        name: "classTemplateId",
-        label: "Class",
+        name: "classSessionId",
+        label: "Scheduled session",
         type: "select" as const,
-        required: true,
+        placeholder: "Select a session",
+        hint: "Book into an existing session. Leave blank only to create a one-off session from a template.",
+        loadOptions: ({ organizationId }: { organizationId: string }) =>
+          loadClassSessionOptions(organizationId),
+      },
+      {
+        name: "classTemplateId",
+        label: "Class template",
+        type: "select" as const,
         placeholder: "Select a class",
+        hint: "Used only when no scheduled session is selected.",
         loadOptions: ({ organizationId }: { organizationId: string }) =>
           loadClassTemplateOptions(organizationId),
       },
@@ -519,11 +557,105 @@ const bookingColumns = [
   { id: "status", header: "Status", accessor: (row: ClassBookingRow) => row.status, format: "muted" as const },
 ];
 
+export const classSessionResource: ResourceConfig<ClassSessionRow> = {
+  key: "class_sessions",
+  title: "Class schedule",
+  singular: "session",
+  description: "Scheduled group class sessions. Templates live under Class templates.",
+  icon: CalendarDays,
+  routeBase: "/classes/schedule",
+  permissions: {
+    view: PERMISSIONS.classes.view,
+    create: PERMISSIONS.classes.manage,
+    update: PERMISSIONS.classes.manage,
+  },
+  searchPlaceholder: "Search session notes",
+  emptyDescription: "Schedule a class session from a template to start taking bookings.",
+  defaultFilters: { status: "scheduled" },
+  filters: [
+    {
+      name: "day",
+      label: "Day",
+      allLabel: "All days",
+      options: [{ value: "today", label: "Today" }],
+    },
+    {
+      name: "status",
+      label: "Status",
+      allLabel: "All statuses",
+      options: CLASS_SESSION_STATUSES,
+    },
+    {
+      name: "branchId",
+      label: "Branch",
+      allLabel: "All branches",
+      optionsSource: "branches",
+    },
+  ],
+  columns: [
+    { id: "class", header: "Class", accessor: (row) => row.className },
+    { id: "when", header: "Starts", accessor: (row) => row.startsAt, format: "datetime" },
+    { id: "trainer", header: "Trainer", accessor: (row) => row.trainerName, format: "muted" },
+    { id: "branch", header: "Branch", accessor: (row) => row.branchName, format: "muted" },
+    { id: "capacity", header: "Capacity", accessor: (row) => row.capacity, format: "number", align: "right" },
+    { id: "status", header: "Status", accessor: (row) => row.status, format: "muted" },
+  ],
+  fields: [
+    {
+      title: "Session",
+      columns: 2,
+      fields: [
+        {
+          name: "classTemplateId",
+          label: "Class",
+          type: "select",
+          required: true,
+          placeholder: "Select a class",
+          loadOptions: ({ organizationId }) => loadClassTemplateOptions(organizationId),
+        },
+        {
+          name: "branchId",
+          label: "Branch",
+          type: "select",
+          required: true,
+          optionsSource: "branches",
+          placeholder: "Select a branch",
+        },
+        {
+          name: "trainerId",
+          label: "Trainer",
+          type: "select",
+          placeholder: "Class default",
+          loadOptions: ({ organizationId }) => loadTrainerOptions(organizationId),
+        },
+        { name: "startsAt", label: "Starts at", type: "datetime", required: true },
+        { name: "endsAt", label: "Ends at", type: "datetime", hint: "Leave blank to use the class duration." },
+        { name: "capacity", label: "Capacity", type: "number", min: 0, step: 1, hint: "Leave blank to use the class capacity." },
+        {
+          name: "status",
+          label: "Status",
+          type: "select",
+          options: CLASS_SESSION_STATUSES,
+          defaultValue: "scheduled",
+        },
+        { name: "notes", label: "Notes", type: "textarea", rows: 3, span: 2 },
+      ],
+    },
+  ],
+  validate: fromZod(classSessionFormSchema),
+  adapter: classSessionAdapter,
+  displayName: (row) => row.className,
+  createLabel: "Schedule session",
+  extraRowActions: (row) => [
+    { label: "Book member", href: `/classes/bookings/add?classSessionId=${row.id}` },
+  ],
+};
+
 export const classBookingResource: ResourceConfig<ClassBookingRow> = {
   key: "class_bookings",
   title: "Bookings",
   singular: "booking",
-  description: "Book members into class sessions. A session is created when one is not supplied.",
+  description: "Book members into scheduled class sessions. Full sessions are waitlisted automatically.",
   icon: CalendarCheck,
   routeBase: "/classes/bookings",
   permissions: {
@@ -794,6 +926,7 @@ export const OPERATIONS_RESOURCES = {
   attendance_records: attendanceResource,
   trainer_assignments: trainerAssignmentResource,
   pt_sessions: ptSessionResource,
+  class_sessions: classSessionResource,
   class_bookings: classBookingResource,
   class_waitlist: waitlistBookingResource,
   workout_plans: workoutPlanResource,

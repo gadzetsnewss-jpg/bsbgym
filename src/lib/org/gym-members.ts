@@ -328,10 +328,34 @@ export interface MemberWorkoutPlanRow {
   isActive: boolean;
 }
 
+export interface MemberClassBookingRow {
+  id: string;
+  className: string;
+  startsAt: string | null;
+  status: string;
+}
+
 export interface MemberAuditRow {
   id: string;
   action: string;
   createdAt: string;
+}
+
+export interface TrainerAssignedMemberRow {
+  id: string;
+  memberId: string;
+  memberName: string;
+  assignedAt: string;
+  status: string;
+}
+
+export interface TrainerSessionRow {
+  id: string;
+  memberName?: string;
+  className?: string;
+  scheduledAt: string;
+  status: string;
+  href: string;
 }
 
 export interface TrainerOption {
@@ -402,6 +426,115 @@ export async function fetchMemberTrainerAssignments(
       assignedAt: String(row.assigned_at ?? ""),
       status: String(row.status || "active"),
       notes: row.notes ? String(row.notes) : null,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberClassBookings(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberClassBookingRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("class_bookings" as AnyTable)
+    .select(
+      "id, status, class_sessions(starts_at, class_templates(name))",
+    )
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("created_at" as "created_at", { ascending: false })
+    .limit(12);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
+      const session = embedRecord(row.class_sessions);
+      const template = embedRecord(session?.class_templates);
+      return {
+        id: String(row.id),
+        className: template?.name ? String(template.name) : "Class",
+        startsAt: session?.starts_at ? String(session.starts_at) : null,
+        status: String(row.status || "booked"),
+      };
+    }),
+    error: null,
+  };
+}
+
+export async function fetchTrainerAssignedMembers(
+  organizationId: string,
+  trainerId: string,
+): Promise<OrgResult<TrainerAssignedMemberRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("trainer_assignments" as AnyTable)
+    .select("id, member_id, assigned_at, status, gym_members(id, full_name, first_name, last_name, code)")
+    .eq("organization_id", organizationId)
+    .eq("trainer_id" as "id", trainerId)
+    .order("assigned_at" as "created_at", { ascending: false })
+    .limit(20);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      memberId: String(row.member_id ?? ""),
+      memberName: embedLabel(row.gym_members),
+      assignedAt: String(row.assigned_at ?? ""),
+      status: String(row.status || "active"),
+    })),
+    error: null,
+  };
+}
+
+export async function fetchTrainerPtSessions(
+  organizationId: string,
+  trainerId: string,
+): Promise<OrgResult<TrainerSessionRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("pt_sessions" as AnyTable)
+    .select("id, scheduled_at, status, gym_members(full_name, first_name, last_name, code)")
+    .eq("organization_id", organizationId)
+    .eq("trainer_id" as "id", trainerId)
+    .order("scheduled_at" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      memberName: embedLabel(row.gym_members),
+      scheduledAt: String(row.scheduled_at ?? ""),
+      status: String(row.status || "scheduled"),
+      href: `/trainers/pt-sessions/${String(row.id)}`,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchTrainerClassSessions(
+  organizationId: string,
+  trainerId: string,
+): Promise<OrgResult<TrainerSessionRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("class_sessions" as AnyTable)
+    .select("id, starts_at, status, class_templates(name)")
+    .eq("organization_id", organizationId)
+    .eq("trainer_id" as "id", trainerId)
+    .order("starts_at" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      className: embedLabel(row.class_templates),
+      scheduledAt: String(row.starts_at ?? ""),
+      status: String(row.status || "scheduled"),
+      href: `/classes/schedule/${String(row.id)}`,
     })),
     error: null,
   };

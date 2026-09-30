@@ -245,6 +245,8 @@ export function ResourceForm<TRow>({ config, mode, id, defaults }: ResourceFormP
         />
       )}
 
+      {config.formExtras?.({ values, organizationId: orgId })}
+
       {!canSubmit && (
         <div className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           You do not have permission to {mode === "create" ? "add" : "edit"} this record.

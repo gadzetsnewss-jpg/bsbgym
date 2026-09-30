@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { CatalogList } from "@/components/catalog/catalog-screens";
+import { OperationsList } from "@/components/operations/operations-screens";
 
 export const metadata: Metadata = { title: "Class schedule" };
 
 export default function ClassSchedulePage() {
-  return <CatalogList resource="class_templates" />;
+  return <OperationsList resource="class_sessions" />;
 }

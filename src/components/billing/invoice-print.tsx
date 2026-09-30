@@ -64,12 +64,21 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
 
       <article className="rounded-card border border-border bg-white p-8 print:border-0 print:p-0">
         <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-lg font-semibold text-ink">{organization?.name ?? "Gym"}</p>
-            {organization?.legalName && <p className="text-sm text-neutral-500">{organization.legalName}</p>}
-            {orgAddress && <p className="text-sm text-neutral-500">{orgAddress}</p>}
-            {organization?.gstin && <p className="text-sm text-neutral-500">GSTIN {organization.gstin}</p>}
-            {organization?.phone && <p className="text-sm text-neutral-500">{organization.phone}</p>}
+          <div className="flex items-start gap-4">
+            {organization?.logoUrl ? (
+              <img
+                src={organization.logoUrl}
+                alt=""
+                className="h-16 w-16 rounded-lg object-contain"
+              />
+            ) : null}
+            <div>
+              <p className="text-lg font-semibold text-ink">{organization?.name ?? "Gym"}</p>
+              {organization?.legalName && <p className="text-sm text-neutral-500">{organization.legalName}</p>}
+              {orgAddress && <p className="text-sm text-neutral-500">{orgAddress}</p>}
+              {organization?.gstin && <p className="text-sm text-neutral-500">GSTIN {organization.gstin}</p>}
+              {organization?.phone && <p className="text-sm text-neutral-500">{organization.phone}</p>}
+            </div>
           </div>
           <div className="text-right">
             <p className="text-2xl font-semibold text-ink">TAX INVOICE</p>
@@ -103,6 +112,7 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
           <thead className="border-y border-border text-left text-xs tracking-wide text-neutral-500 uppercase">
             <tr>
               <th className="py-2">Description</th>
+              <th className="py-2">HSN / SAC</th>
               <th className="py-2">Qty</th>
               <th className="py-2 text-right">Rate</th>
               <th className="py-2 text-right">Discount</th>
@@ -114,6 +124,7 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
             {(invoice.items ?? []).map((item) => (
               <tr key={item.id} className="border-b border-border">
                 <td className="py-2">{item.description}</td>
+                <td className="py-2">{item.hsnSac ?? "—"}</td>
                 <td className="py-2">{item.quantity}</td>
                 <td className="py-2 text-right tabular-nums">{formatCurrency(item.unitPrice, currency)}</td>
                 <td className="py-2 text-right tabular-nums">{formatCurrency(item.discount, currency)}</td>

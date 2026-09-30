@@ -58,6 +58,10 @@ export interface TableAdapterOptions<TRow> {
   fixedEq?: Record<string, string | boolean>;
   /** List-only: keep rows whose date column is within N days from today. */
   lteColumnDays?: { column: string; days: number };
+  /** Filter name -> timestamptz column. Value `today` restricts to that UTC date. */
+  dateEqFilters?: Record<string, string>;
+  /** Filter name -> column that must be null when the value is `true` or `open`. */
+  isNullFilters?: Record<string, string>;
 }
 
 export function createTableAdapter<TRow>(
@@ -107,6 +111,24 @@ export function createTableAdapter<TRow>(
         const limit = new Date();
         limit.setDate(limit.getDate() + opts.lteColumnDays.days);
         query = query.lte(opts.lteColumnDays.column, limit.toISOString().slice(0, 10));
+      }
+
+      for (const [name, column] of Object.entries(opts.dateEqFilters ?? {})) {
+        const value = params.filters[name];
+        if (value === "today") {
+          const start = new Date();
+          start.setUTCHours(0, 0, 0, 0);
+          const end = new Date(start);
+          end.setUTCDate(end.getUTCDate() + 1);
+          query = query.gte(column, start.toISOString()).lt(column, end.toISOString());
+        }
+      }
+
+      for (const [name, column] of Object.entries(opts.isNullFilters ?? {})) {
+        const value = params.filters[name];
+        if (value === "true" || value === "open") {
+          query = query.is(column, null);
+        }
       }
 
       const { data, error, count } = await query;

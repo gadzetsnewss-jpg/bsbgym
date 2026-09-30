@@ -106,6 +106,7 @@ export interface InvoiceItemRow {
   igst: number;
   lineTotal: number;
   sortOrder: number;
+  hsnSac: string | null;
 }
 
 export interface InvoiceRow {

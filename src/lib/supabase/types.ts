@@ -1143,6 +1143,7 @@ export interface Database {
         igst: number;
         line_total: number;
         sort_order: number;
+        hsn_sac: string | null;
         created_at: string;
       }>;
       payments: ModuleTable<{
@@ -2102,6 +2103,36 @@ export interface Database {
       };
       set_class_booking_status: {
         Args: { p_booking_id: string; p_status: string };
+        Returns: void;
+      };
+      create_class_session: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_class_template_id: string;
+          p_trainer_id: string | null;
+          p_starts_at: string | null;
+          p_ends_at: string | null;
+          p_capacity: number | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_class_session: {
+        Args: {
+          p_session_id: string;
+          p_branch_id: string;
+          p_trainer_id: string | null;
+          p_starts_at: string;
+          p_ends_at: string;
+          p_capacity: number;
+          p_status: string;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      set_class_session_status: {
+        Args: { p_session_id: string; p_status: string };
         Returns: void;
       };
       create_workout_plan: {

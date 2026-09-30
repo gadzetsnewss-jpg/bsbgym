@@ -11,6 +11,7 @@ import * as React from "react";
 import {
   Activity,
   ArrowLeft,
+  BookOpen,
   CalendarDays,
   CreditCard,
   Dumbbell,
@@ -47,6 +48,7 @@ import {
   MemberActivityPanel,
   MemberAttendancePanel,
   MemberBillingPanel,
+  MemberClassBookingsPanel,
   MemberFitnessPanel,
   MemberTrainerPanel,
 } from "@/components/members/member-related-panels";
@@ -254,6 +256,7 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
           { value: "membership", label: "Membership", icon: Dumbbell },
           { value: "billing", label: "Billing", icon: CreditCard },
           { value: "attendance", label: "Attendance", icon: CalendarDays },
+          { value: "classes", label: "Classes", icon: BookOpen },
           { value: "trainer", label: "Trainer", icon: UserRoundCheck },
           { value: "fitness", label: "Fitness", icon: Dumbbell },
           { value: "activity", label: "Activity", icon: Activity },
@@ -332,6 +335,7 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
         {tab === "membership" && <MemberMembershipsPanel memberId={member.id} />}
         {tab === "billing" && <MemberBillingPanel memberId={member.id} />}
         {tab === "attendance" && <MemberAttendancePanel memberId={member.id} />}
+        {tab === "classes" && <MemberClassBookingsPanel memberId={member.id} />}
         {tab === "trainer" && (
           <MemberTrainerPanel
             memberId={member.id}

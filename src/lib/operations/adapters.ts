@@ -146,6 +146,22 @@ export interface PtSessionRow {
   notes: string | null;
 }
 
+export interface ClassSessionRow {
+  id: string;
+  organizationId: string;
+  branchId: string;
+  branchName: string;
+  classTemplateId: string;
+  className: string;
+  trainerId: string | null;
+  trainerName: string | null;
+  startsAt: string;
+  endsAt: string;
+  capacity: number;
+  status: string;
+  notes: string | null;
+}
+
 export interface ClassBookingRow {
   id: string;
   organizationId: string;
@@ -258,6 +274,32 @@ export async function loadPlanOptions(organizationId: string): Promise<SelectOpt
       return {
         value: asString(row.id),
         label: duration > 0 ? `${base} · ${duration} days` : base,
+      };
+    });
+}
+
+export async function loadClassSessionOptions(organizationId: string): Promise<SelectOption[]> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return [];
+  const { data } = await supabase
+    .from("class_sessions" as "gym_members")
+    .select(
+      "id, starts_at, ends_at, status, capacity, class_templates(name), trainers(full_name, first_name, last_name)",
+    )
+    .eq("organization_id", organizationId)
+    .eq("status" as "id", "scheduled")
+    .order("starts_at" as "created_at", { ascending: true })
+    .limit(200);
+  return ((data ?? []) as unknown as Row[])
+    .filter((row) => asString(row.status) === "scheduled")
+    .map((row) => {
+      const template = Array.isArray(row.class_templates) ? row.class_templates[0] : row.class_templates;
+      const name = embedName(template) ?? "Class";
+      const when = asString(row.starts_at);
+      const labelWhen = when.length >= 16 ? when.slice(0, 16).replace("T", " ") : when;
+      return {
+        value: asString(row.id),
+        label: labelWhen ? `${name} · ${labelWhen}` : name,
       };
     });
 }
@@ -462,7 +504,9 @@ export const attendanceAdapter = createTableAdapter<AttendanceRow>({
     "id, organization_id, branch_id, member_id, check_in_at, check_out_at, method, notes, branches(id, name, code), gym_members(id, full_name, first_name, last_name, code)",
   searchColumns: ["notes", "method"],
   order: { column: "check_in_at", ascending: false },
-  filterColumns: { method: "method" },
+  filterColumns: { method: "method", branchId: "branch_id" },
+  dateEqFilters: { day: "check_in_at" },
+  isNullFilters: { open: "check_out_at" },
   mapRow: (row): AttendanceRow => ({
     id: asString(row.id),
     organizationId: asString(row.organization_id),
@@ -619,6 +663,7 @@ function classBookingFormValues(row: ClassBookingRow): ResourceValues {
   return {
     branchId: row.branchId,
     memberId: row.memberId,
+    classSessionId: row.classSessionId,
     classTemplateId: row.classTemplateId ?? "",
     trainerId: row.trainerId ?? "",
     startsAt: toDateTimeLocal(row.startsAt),
@@ -633,7 +678,7 @@ function classBookingCreateParams(values: ResourceValues) {
   return {
     p_branch_id: textOrNull(values.branchId),
     p_member_id: textOrNull(values.memberId),
-    p_class_session_id: null,
+    p_class_session_id: textOrNull(values.classSessionId),
     p_class_template_id: textOrNull(values.classTemplateId),
     p_trainer_id: textOrNull(values.trainerId),
     p_starts_at: datetimeOrNull(values.startsAt),
@@ -653,6 +698,62 @@ function classBookingUpdateParams(values: ResourceValues) {
 
 const classBookingSelect =
   "id, organization_id, class_session_id, member_id, status, notes, gym_members(id, full_name, first_name, last_name, code), class_sessions(id, branch_id, class_template_id, trainer_id, starts_at, ends_at, capacity, branches(id, name, code), class_templates(id, name), trainers(id, full_name, first_name, last_name))";
+
+export const classSessionAdapter = createTableAdapter<ClassSessionRow>({
+  table: "class_sessions",
+  select:
+    "id, organization_id, branch_id, class_template_id, trainer_id, starts_at, ends_at, capacity, status, notes, branches(id, name, code), class_templates(id, name), trainers(id, full_name, first_name, last_name)",
+  searchColumns: ["notes"],
+  order: { column: "starts_at", ascending: false },
+  filterColumns: { status: "status", branchId: "branch_id" },
+  dateEqFilters: { day: "starts_at" },
+  mapRow: (row): ClassSessionRow => ({
+    id: asString(row.id),
+    organizationId: asString(row.organization_id),
+    branchId: asString(row.branch_id),
+    branchName: embedName(row.branches) ?? "Unknown branch",
+    classTemplateId: asString(row.class_template_id),
+    className: embedName(row.class_templates) ?? "Class",
+    trainerId: asNullableString(row.trainer_id),
+    trainerName: embedName(row.trainers),
+    startsAt: asString(row.starts_at),
+    endsAt: asString(row.ends_at),
+    capacity: asNumber(row.capacity),
+    status: asString(row.status) || "scheduled",
+    notes: asNullableString(row.notes),
+  }),
+  toFormValues: (row): ResourceValues => ({
+    branchId: row.branchId,
+    classTemplateId: row.classTemplateId,
+    trainerId: row.trainerId ?? "",
+    startsAt: toDateTimeLocal(row.startsAt),
+    endsAt: toDateTimeLocal(row.endsAt),
+    capacity: numberString(row.capacity, "0"),
+    status: row.status || "scheduled",
+    notes: row.notes ?? "",
+  }),
+  rpcCreate: "create_class_session",
+  rpcUpdate: "update_class_session",
+  idUpdateParam: "p_session_id",
+  buildCreateParams: (values) => ({
+    p_branch_id: textOrNull(values.branchId),
+    p_class_template_id: textOrNull(values.classTemplateId),
+    p_trainer_id: textOrNull(values.trainerId),
+    p_starts_at: datetimeOrNull(values.startsAt),
+    p_ends_at: datetimeOrNull(values.endsAt),
+    p_capacity: numberOrNull(values.capacity),
+    p_notes: textOrNull(values.notes),
+  }),
+  buildUpdateParams: (values) => ({
+    p_branch_id: textOrNull(values.branchId),
+    p_trainer_id: textOrNull(values.trainerId),
+    p_starts_at: datetimeOrNull(values.startsAt),
+    p_ends_at: datetimeOrNull(values.endsAt),
+    p_capacity: numberOrNull(values.capacity) ?? 0,
+    p_status: textOrNull(values.status) ?? "scheduled",
+    p_notes: textOrNull(values.notes),
+  }),
+});
 
 export const classBookingAdapter = createTableAdapter<ClassBookingRow>({
   table: "class_bookings",

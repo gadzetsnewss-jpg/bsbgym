@@ -181,6 +181,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
           <thead className="border-b border-border text-left text-xs tracking-wide text-neutral-500 uppercase">
             <tr>
               <th className="px-5 py-3">Description</th>
+              <th className="px-5 py-3">HSN / SAC</th>
               <th className="px-5 py-3">Qty</th>
               <th className="px-5 py-3 text-right">Rate</th>
               <th className="px-5 py-3 text-right">Discount</th>
@@ -192,6 +193,7 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
             {(invoice.items ?? []).map((item) => (
               <tr key={item.id} className="border-b border-border last:border-0">
                 <td className="px-5 py-3">{item.description}</td>
+                <td className="px-5 py-3">{item.hsnSac ?? "—"}</td>
                 <td className="px-5 py-3">{item.quantity}</td>
                 <td className="px-5 py-3 text-right tabular-nums">{formatCurrency(item.unitPrice, currency)}</td>
                 <td className="px-5 py-3 text-right tabular-nums">{formatCurrency(item.discount, currency)}</td>
@@ -233,7 +235,12 @@ export function InvoiceDetail({ invoiceId }: { invoiceId: string }) {
                       {row.reference ? ` · ${row.reference}` : ""}
                     </p>
                   </div>
-                  <p className="tabular-nums">{formatCurrency(row.amount, currency)}</p>
+                  <div className="flex items-center gap-3">
+                    <p className="tabular-nums">{formatCurrency(row.amount, currency)}</p>
+                    <ButtonLink href={`/billing/payments/${row.id}/print`} variant="ghost" size="sm">
+                      Receipt
+                    </ButtonLink>
+                  </div>
                 </li>
               ))}
             </ul>

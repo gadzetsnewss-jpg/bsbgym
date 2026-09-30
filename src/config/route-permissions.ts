@@ -58,6 +58,7 @@ export const ROUTE_PERMISSIONS: RoutePermissionRule[] = [
   { path: "/fitness/progress/add", permission: "fitness.manage" },
   { path: "/fitness", permission: "fitness.view" },
   { path: "/classes/schedule/add", permission: "classes.manage" },
+  { path: "/classes/templates/add", permission: "classes.manage" },
   { path: "/classes/bookings/add", permission: "bookings.manage" },
   { path: "/classes/waitlist/add", permission: "bookings.manage" },
   { path: "/classes", permission: "classes.view" },

@@ -101,7 +101,9 @@ export interface ResourceFilter {
   label: string;
   /** Label for the "no filter" option. */
   allLabel: string;
-  options: readonly SelectOption[];
+  options?: readonly SelectOption[];
+  /** Dynamic options from org context (e.g. branches). */
+  optionsSource?: FieldOptionsSource;
 }
 
 /** Derives the active/inactive badge + state for a row. */
@@ -171,6 +173,8 @@ export interface ResourceConfig<TRow> {
   defaultFilters?: Record<string, string>;
   /** Optional billing-handoff notice rendered above the form. */
   billingHandoff?: "assign" | "renew" | "upgrade" | "freeze" | "extend";
+  /** Extra notice rendered above the form fields, driven by current values. */
+  formExtras?: (ctx: { values: ResourceValues; organizationId: string }) => React.ReactNode;
   /** Extra panels rendered on the detail page after the field cards. */
   detailExtras?: (row: TRow) => React.ReactNode;
   /** Label for the create button (default `Add {singular}`). */

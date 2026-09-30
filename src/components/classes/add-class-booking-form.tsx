@@ -3,16 +3,16 @@
 import { useSearchParams } from "next/navigation";
 import { OperationsForm } from "@/components/operations/operations-screens";
 
-export function AddTrainerAssignmentForm() {
+export function AddClassBookingForm() {
   const searchParams = useSearchParams();
   const memberId = searchParams.get("memberId") ?? "";
-  const trainerId = searchParams.get("trainerId") ?? "";
+  const classSessionId = searchParams.get("classSessionId") ?? "";
   const defaults: Record<string, string> = {};
   if (memberId) defaults.memberId = memberId;
-  if (trainerId) defaults.trainerId = trainerId;
+  if (classSessionId) defaults.classSessionId = classSessionId;
   return (
     <OperationsForm
-      resource="trainer_assignments"
+      resource="class_bookings"
       mode="create"
       defaults={Object.keys(defaults).length > 0 ? defaults : undefined}
     />

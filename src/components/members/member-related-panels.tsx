@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Activity, CalendarCheck, CreditCard, Dumbbell, UserRound } from "lucide-react";
+import { Activity, BookOpen, CalendarCheck, CreditCard, Dumbbell, UserRound } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
@@ -13,10 +13,12 @@ import { fetchInvoices, fetchPayments } from "@/lib/billing/client";
 import {
   fetchMemberActivity,
   fetchMemberAttendance,
+  fetchMemberClassBookings,
   fetchMemberTrainerAssignments,
   fetchMemberWorkoutPlans,
   type MemberAttendanceRow,
   type MemberAuditRow,
+  type MemberClassBookingRow,
   type MemberTrainerAssignmentRow,
   type MemberWorkoutPlanRow,
 } from "@/lib/org/gym-members";
@@ -321,6 +323,87 @@ export function MemberTrainerPanel({
           </Card>
         ))
       )}
+    </div>
+  );
+}
+
+export function MemberClassBookingsPanel({ memberId }: { memberId: string }) {
+  const { organization, can } = useOrganization();
+  const orgId = organization?.id;
+  const canView = can("classes.view");
+  const canBook = can("bookings.manage");
+
+  const [rows, setRows] = React.useState<MemberClassBookingRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    if (!orgId || !canView) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const result = await fetchMemberClassBookings(orgId, memberId);
+    setLoading(false);
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+    setRows(result.data);
+  }, [orgId, memberId, canView]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!canView) {
+    return (
+      <EmptyState
+        icon={BookOpen}
+        title="Classes are restricted"
+        description="You do not have permission to view class bookings for this member."
+      />
+    );
+  }
+  if (error) return <ErrorState description={error} onRetry={() => void load()} />;
+  if (loading) return <LoadingState label="Loading class bookings…" />;
+  if (rows.length === 0) {
+    return (
+      <EmptyState
+        icon={BookOpen}
+        title="No class bookings"
+        description="Book this member into a class to see it listed here."
+        action={canBook ? { label: "Book class", href: `/classes/bookings/add?memberId=${memberId}` } : undefined}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {canBook && (
+        <div className="flex justify-end">
+          <ButtonLink href={`/classes/bookings/add?memberId=${memberId}`} size="sm">
+            Book class
+          </ButtonLink>
+        </div>
+      )}
+      {rows.map((row) => (
+        <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-ink">{row.className}</p>
+            <p className="text-xs text-neutral-500">
+              {row.startsAt ? formatDateTime(row.startsAt) : "Unscheduled"}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <StatusBadge status={humanLabel(row.status)} />
+            <ButtonLink href={`/classes/bookings/${row.id}`} variant="outline" size="sm">
+              View
+            </ButtonLink>
+          </div>
+        </Card>
+      ))}
     </div>
   );
 }

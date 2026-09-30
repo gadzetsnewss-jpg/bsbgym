@@ -98,18 +98,20 @@ export function PaymentsList() {
       id: "actions",
       header: "",
       align: "right",
-      cell: (row) =>
-        row.invoiceId ? (
-          <RowActions
-            label={`Actions for payment ${row.id}`}
-            items={[
-              { label: "View invoice", href: `/billing/invoices/${row.invoiceId}` },
-              ...(can("billing.refund")
-                ? [{ label: "Request refund", href: `/billing/refunds?paymentId=${row.id}` }]
-                : []),
-            ]}
-          />
-        ) : null,
+      cell: (row) => (
+        <RowActions
+          label={`Actions for payment ${row.id}`}
+          items={[
+            ...(row.invoiceId
+              ? [{ label: "View invoice", href: `/billing/invoices/${row.invoiceId}` }]
+              : []),
+            { label: "Print receipt", href: `/billing/payments/${row.id}/print` },
+            ...(can("billing.refund")
+              ? [{ label: "Request refund", href: `/billing/refunds?paymentId=${row.id}` }]
+              : []),
+          ]}
+        />
+      ),
     },
   ];
 

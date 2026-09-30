@@ -44,6 +44,7 @@ import {
   supplierFormSchema,
   trainerFormSchema,
 } from "@/lib/validation/catalog-schemas";
+import { trainerDetailExtras } from "@/components/trainers/trainer-detail-extras";
 
 const ACTIVE_FILTER = [
   { value: "true", label: "Active" },
@@ -119,6 +120,10 @@ export const trainerResource: ResourceConfig<TrainerRow> = {
   validate: fromZod(trainerFormSchema),
   adapter: trainerAdapter,
   displayName: (row) => row.fullName,
+  extraRowActions: (row) => [
+    { label: "Assign member", href: `/trainers/assignments/add?trainerId=${row.id}` },
+  ],
+  detailExtras: trainerDetailExtras,
 };
 
 export const membershipPlanResource: ResourceConfig<MembershipPlanRow> = {
@@ -271,11 +276,11 @@ export const exerciseResource: ResourceConfig<ExerciseRow> = {
 
 export const classTemplateResource: ResourceConfig<ClassTemplateRow> = {
   key: "class_templates",
-  title: "Class schedule",
-  singular: "class",
-  description: "Reusable class templates for the timetable.",
+  title: "Class templates",
+  singular: "class template",
+  description: "Reusable class templates used when scheduling sessions.",
   icon: CalendarDays,
-  routeBase: "/classes/schedule",
+  routeBase: "/classes/templates",
   permissions: {
     view: PERMISSIONS.classes.view,
     create: PERMISSIONS.classes.manage,
@@ -323,6 +328,9 @@ export const classTemplateResource: ResourceConfig<ClassTemplateRow> = {
   validate: fromZod(classTemplateFormSchema),
   adapter: classTemplateAdapter,
   displayName: (row) => row.name,
+  extraRowActions: (row) => [
+    { label: "Schedule session", href: `/classes/schedule/add?classTemplateId=${row.id}` },
+  ],
 };
 
 export const productResource: ResourceConfig<ProductRow> = {

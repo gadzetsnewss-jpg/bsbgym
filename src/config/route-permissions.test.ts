@@ -24,6 +24,7 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/billing/invoices")).toBe("billing.view");
     expect(requiredPermissionForPath("/billing/new-invoice")).toBe("billing.create");
     expect(requiredPermissionForPath("/billing/payments")).toBe("payments.view");
+    expect(requiredPermissionForPath("/billing/payments/abc/print")).toBe("payments.view");
     expect(requiredPermissionForPath("/billing/credit-notes")).toBe("billing.create");
     expect(requiredPermissionForPath("/billing/refunds")).toBe("billing.refund");
     expect(requiredPermissionForPath("/billing/outstanding")).toBe("billing.view");
@@ -53,6 +54,8 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/fitness/exercises")).toBe("fitness.view");
     expect(requiredPermissionForPath("/fitness/exercises/add")).toBe("fitness.manage");
     expect(requiredPermissionForPath("/classes/schedule/add")).toBe("classes.manage");
+    expect(requiredPermissionForPath("/classes/templates/add")).toBe("classes.manage");
+    expect(requiredPermissionForPath("/classes/templates")).toBe("classes.view");
     expect(requiredPermissionForPath("/inventory/products/add")).toBe("inventory.manage");
     expect(requiredPermissionForPath("/inventory/suppliers/add")).toBe("inventory.manage");
     expect(requiredPermissionForPath("/inventory/products")).toBe("inventory.view");

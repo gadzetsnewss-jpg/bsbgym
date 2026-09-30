@@ -35,7 +35,7 @@ export interface ResourceListProps<TRow> {
 export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
   const router = useRouter();
   const { toast } = useToast();
-  const { organization, can } = useOrganization();
+  const { organization, branches, can } = useOrganization();
   const orgId = organization?.id;
   const currency = organization?.currency ?? "INR";
 
@@ -277,19 +277,27 @@ export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
             />
           )}
           <FilterBar className="flex-1" activeCount={activeFilterCount} onClear={clearFilters}>
-            {(config.filters ?? []).map((filter) => (
-              <Select
-                key={filter.name}
-                aria-label={filter.label}
-                className="w-full sm:w-48"
-                value={filters[filter.name] ?? "all"}
-                onChange={(event) => {
-                  setFilters((prev) => ({ ...prev, [filter.name]: event.target.value }));
-                  setPage(1);
-                }}
-                options={[{ value: "all", label: filter.allLabel }, ...filter.options]}
-              />
-            ))}
+            {(config.filters ?? []).map((filter) => {
+              const branchOptions = branches.map((branch) => ({
+                value: branch.id,
+                label: `${branch.name} (${branch.code})`,
+              }));
+              const options =
+                filter.optionsSource === "branches" ? branchOptions : (filter.options ?? []);
+              return (
+                <Select
+                  key={filter.name}
+                  aria-label={filter.label}
+                  className="w-full sm:w-48"
+                  value={filters[filter.name] ?? "all"}
+                  onChange={(event) => {
+                    setFilters((prev) => ({ ...prev, [filter.name]: event.target.value }));
+                    setPage(1);
+                  }}
+                  options={[{ value: "all", label: filter.allLabel }, ...options]}
+                />
+              );
+            })}
           </FilterBar>
         </div>
       ) : null}
