@@ -767,6 +767,7 @@ export async function fetchMemberForInvoice(
     email: string | null;
     address: string | null;
     branchId: string;
+    trainerName: string | null;
     membership: {
       id: string;
       planId: string | null;
@@ -803,6 +804,14 @@ export async function fetchMemberForInvoice(
   }
   const { data: memberships } = await membershipQuery;
 
+  const { data: trainerAssignment } = await supabase
+    .from("trainer_assignments" as AnyTable)
+    .select("trainers(full_name)")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .eq("status" as "id", "active")
+    .maybeSingle();
+
   const membership = ((memberships ?? []) as unknown as Row[])[0];
   return {
     data: {
@@ -813,6 +822,7 @@ export async function fetchMemberForInvoice(
       email: asNullableString(row.email),
       address: memberAddress(row),
       branchId: asString(row.branch_id),
+      trainerName: asNullableString(embed(embed(trainerAssignment)?.trainers)?.full_name),
       membership: membership
         ? {
             id: asString(membership.id),

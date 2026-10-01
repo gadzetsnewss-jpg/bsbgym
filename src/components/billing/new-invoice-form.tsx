@@ -1,24 +1,36 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 import {
   BadgeCheck,
-  CalendarPlus,
+  Calculator,
+  CalendarClock,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  CreditCard,
   FilePlus,
+  FileText,
+  Home,
+  ListPlus,
   Plus,
   Printer,
   Receipt,
   RotateCcw,
+  Search,
   Trash2,
   User,
+  Users,
+  Wallet,
 } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Badge, StatusBadge } from "@/components/ui/badge";
 import { FormField } from "@/components/ui/form-field";
-import { FormSection } from "@/components/ui/form-section";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,6 +56,7 @@ import { loadMemberOptions } from "@/lib/operations/adapters";
 import { createMembership, extendMembership } from "@/lib/org/memberships";
 import { fetchOrganizationSetting, settingValueAsRecord } from "@/lib/org/settings";
 import { formatCurrency, formatDate } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import {
   INVOICE_ITEM_TYPES,
   INVOICE_ITEM_TYPE_LABELS,
@@ -97,6 +110,212 @@ function todayIso(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function initialsOf(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase() ?? "")
+      .join("") || "M"
+  );
+}
+
+function StepCard({
+  step,
+  title,
+  description,
+  icon: Icon,
+  actions,
+  tone = "default",
+  className,
+  children,
+}: {
+  step: number;
+  title: string;
+  description?: string;
+  icon: LucideIcon;
+  actions?: React.ReactNode;
+  tone?: "default" | "success";
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section
+      className={cn(
+        "rounded-card border bg-surface p-5 shadow-card",
+        tone === "success" ? "border-emerald-200" : "border-border",
+        className,
+      )}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span
+            className={cn(
+              "flex size-9 shrink-0 items-center justify-center rounded-xl text-white shadow-card",
+              tone === "success"
+                ? "bg-gradient-to-br from-emerald-500 to-primary-600"
+                : "bg-gradient-to-br from-primary-600 to-accent-500",
+            )}
+          >
+            <Icon aria-hidden="true" className="size-5" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold tracking-wider text-primary-600 uppercase">
+              Step {step}
+            </p>
+            <h2 className="text-base font-semibold tracking-tight text-ink">{title}</h2>
+            {description && <p className="mt-0.5 text-sm text-neutral-500">{description}</p>}
+          </div>
+        </div>
+        {actions && <div className="flex shrink-0 flex-wrap items-center gap-2">{actions}</div>}
+      </div>
+      <div className="mt-4">{children}</div>
+    </section>
+  );
+}
+
+function InfoTile({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">{label}</dt>
+      <dd className="mt-0.5 truncate text-sm font-medium text-ink">{value}</dd>
+    </div>
+  );
+}
+
+function ItemCell({
+  label,
+  className,
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <label className="mb-1 block text-[11px] font-medium text-neutral-500 lg:hidden">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const ITEMS_GRID =
+  "lg:grid-cols-[1.75rem_minmax(0,3fr)_minmax(0,1.5fr)_minmax(0,2fr)_4.5rem_6rem_6rem_5.5rem_7rem_2.5rem]";
+
+function PlanPicker({
+  value,
+  options,
+  currency,
+  invalid,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  options: InvoicePlanOption[];
+  currency: string;
+  invalid?: boolean;
+  onChange: (planId: string) => void;
+  placeholder: string;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const [query, setQuery] = React.useState("");
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const selected = options.find((option) => option.id === value);
+
+  React.useEffect(() => {
+    if (!open) return;
+    const handler = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  const normalized = query.trim().toLowerCase();
+  const filtered = normalized
+    ? options.filter((option) => `${option.name} ${option.code}`.toLowerCase().includes(normalized))
+    : options;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen((prev) => !prev)}
+        className={cn(
+          "flex h-10 w-full items-center justify-between gap-2 rounded-lg border bg-white px-3 text-left text-sm shadow-card transition-colors",
+          "focus-visible:border-primary-500 focus-visible:ring-2 focus-visible:ring-primary-500/25 focus-visible:outline-none",
+          invalid ? "border-red-400" : "border-border",
+        )}
+      >
+        <span className={cn("truncate", selected ? "text-ink" : "text-neutral-400")}>
+          {selected ? planOptionLabel(selected, (amount) => formatCurrency(amount, currency)) : placeholder}
+        </span>
+        <ChevronDown
+          aria-hidden="true"
+          className={cn("size-4 shrink-0 text-neutral-400 transition-transform", open && "rotate-180")}
+        />
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute left-0 z-40 mt-1 w-72 rounded-lg border border-border bg-white p-2 shadow-pop"
+        >
+          <div className="relative">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-neutral-400"
+            />
+            <Input
+              autoFocus
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search plans"
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+          <div className="mt-2 max-h-56 overflow-y-auto">
+            {filtered.length === 0 ? (
+              <p className="px-2 py-3 text-center text-xs text-neutral-500">No plans found</p>
+            ) : (
+              filtered.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="option"
+                  aria-selected={option.id === value}
+                  onClick={() => {
+                    onChange(option.id);
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  className={cn(
+                    "flex w-full flex-col items-start gap-0.5 rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-primary-50",
+                    option.id === value && "bg-primary-50",
+                  )}
+                >
+                  <span className="w-full truncate font-medium text-ink">
+                    {option.name}
+                    {option.code ? ` (${option.code})` : ""}
+                  </span>
+                  <span className="text-xs text-neutral-500">
+                    {option.durationDays} days · {formatCurrency(option.price, currency)}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NewInvoiceForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -128,6 +347,7 @@ export function NewInvoiceForm() {
   const [payments, setPayments] = React.useState<DraftPayment[]>([
     { key: "p-1", method: "upi", amount: "", reference: "" },
   ]);
+  const [paymentReceived, setPaymentReceived] = React.useState(true);
   const [membershipStart, setMembershipStart] = React.useState(todayIso());
   const [extraMonths, setExtraMonths] = React.useState("0");
   const [extraDays, setExtraDays] = React.useState("0");
@@ -239,13 +459,14 @@ export function NewInvoiceForm() {
 
   // Keep a single untouched payment row in sync with the invoice total.
   React.useEffect(() => {
+    if (!paymentReceived) return;
     if (paymentsDirty.current) return;
     setPayments((prev) =>
       prev.length === 1
         ? [{ ...prev[0], amount: totals.grandTotal > 0 ? totals.grandTotal.toFixed(2) : "" }]
         : prev,
     );
-  }, [totals.grandTotal]);
+  }, [totals.grandTotal, paymentReceived]);
 
   const defaultGst = gstRates.find((rate) => rate.isDefault) ?? gstRates[0];
 
@@ -335,6 +556,16 @@ export function NewInvoiceForm() {
     setPayments((prev) => (prev.length > 1 ? prev.filter((payment) => payment.key !== key) : prev));
   };
 
+  const togglePaymentReceived = (checked: boolean) => {
+    setPaymentReceived(checked);
+    if (!checked) {
+      paymentsDirty.current = true;
+      setPayments((prev) => prev.map((payment) => ({ ...payment, amount: "" })));
+    } else {
+      paymentsDirty.current = false;
+    }
+  };
+
   const validate = (mode: "draft" | "finalize"): boolean => {
     const nextErrors: Record<string, string> = {};
     if (!memberId) nextErrors.memberId = "Select a member.";
@@ -371,17 +602,21 @@ export function NewInvoiceForm() {
     if (mode === "finalize") {
       if (!can("payments.create")) {
         nextErrors.payments = "You do not have permission to record payments.";
+      } else if (!paymentReceived) {
+        nextErrors.payments = "Tick Payment received to finalize, or use Save draft.";
       } else if (paymentTotal <= 0) {
         nextErrors.payments = "Enter a payment before finalizing. Use Save draft to keep it unpaid.";
       } else if (paymentTotal > totals.grandTotal + 0.001) {
         nextErrors.payments = "Payments cannot exceed the invoice total.";
       }
-      payments.forEach((payment, index) => {
-        const amount = Number(payment.amount);
-        if (!Number.isFinite(amount) || amount <= 0) {
-          nextErrors[`payment.${index}.amount`] = "Enter an amount greater than zero.";
-        }
-      });
+      if (paymentReceived) {
+        payments.forEach((payment, index) => {
+          const amount = Number(payment.amount);
+          if (!Number.isFinite(amount) || amount <= 0) {
+            nextErrors[`payment.${index}.amount`] = "Enter an amount greater than zero.";
+          }
+        });
+      }
     }
     setFieldErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -393,6 +628,7 @@ export function NewInvoiceForm() {
     paymentKeyRef.current = 1;
     paymentsDirty.current = false;
     activateTouched.current = false;
+    setPaymentReceived(true);
     setExtraMonths("0");
     setExtraDays("0");
     setActivateMembership(false);
@@ -628,151 +864,177 @@ export function NewInvoiceForm() {
     );
   }
 
+  const currentBranch = branches.find((branch) => branch.id === branchId);
+  const memberBranch = branches.find((branch) => branch.id === member?.branchId);
+
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title="New invoice"
-        description="Member → Plan → Membership validity → Payment. Everything is saved to Supabase."
-        icon={FilePlus}
-        actions={<ButtonLink href="/billing/invoices" variant="outline">Back to invoices</ButtonLink>}
-      />
+    <div className="space-y-5 pb-4">
+      <header className="space-y-3">
+        <nav aria-label="Breadcrumb" className="flex items-center gap-1 text-xs font-medium text-neutral-500">
+          <Link href="/dashboard" className="inline-flex items-center gap-1 transition-colors hover:text-primary-700">
+            <Home aria-hidden="true" className="size-3.5" />
+            Home
+          </Link>
+          <ChevronRight aria-hidden="true" className="size-3.5 text-neutral-300" />
+          <Link href="/billing/invoices" className="transition-colors hover:text-primary-700">
+            Billing
+          </Link>
+          <ChevronRight aria-hidden="true" className="size-3.5 text-neutral-300" />
+          <span className="text-ink">New invoice</span>
+        </nav>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-ink">New invoice</h1>
+            <p className="mt-1 text-sm text-neutral-500">Create and collect a gym invoice in one workflow.</p>
+          </div>
+          <ButtonLink href="/billing/invoices" variant="outline" size="sm">
+            Back to invoices
+          </ButtonLink>
+        </div>
+      </header>
 
       {loadError && <ErrorState description={loadError} />}
 
-      <FormSection title="1. Invoice details" columns={1}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <FormField label="Invoice number" hint="Assigned automatically on save">
-            <Input value="Auto" disabled />
-          </FormField>
-          <FormField label="Invoice date" required>
-            <Input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} />
-          </FormField>
-          <FormField label="Invoice payment due date" hint="Separate from membership expiry">
-            <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
-          </FormField>
-        </div>
-      </FormSection>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <StepCard step={1} title="Invoice details" icon={FileText}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <FormField label="Invoice number" hint="Assigned automatically on save">
+              <Input value="Auto" disabled />
+            </FormField>
+            <FormField label="Invoice date" required>
+              <Input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} />
+            </FormField>
+            <FormField label="Payment due date" hint="Separate from membership expiry">
+              <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            </FormField>
+          </div>
+        </StepCard>
 
-      <FormSection title="2. Customer" columns={1}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <FormField label="Member" required error={fieldErrors.memberId}>
-            <Select
-              value={memberId}
-              placeholder="Search / select a member"
-              invalid={Boolean(fieldErrors.memberId)}
-              onChange={(event) => {
-                setFieldErrors((prev) => {
-                  const next = { ...prev };
-                  delete next.memberId;
-                  return next;
-                });
-                setMemberId(event.target.value);
-              }}
-              options={members}
-            />
-          </FormField>
-          <FormField label="Branch" required error={fieldErrors.branchId}>
-            <Select
-              value={branchId}
-              invalid={Boolean(fieldErrors.branchId)}
-              onChange={(event) => {
-                setFieldErrors((prev) => {
-                  const next = { ...prev };
-                  delete next.branchId;
-                  return next;
-                });
-                setBranchId(event.target.value);
-              }}
-              options={branches.map((branch) => ({ value: branch.id, label: `${branch.name} (${branch.code})` }))}
-            />
-          </FormField>
-        </div>
-        {member && (
-          <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Member code</dt>
-              <dd className="text-ink">{member.code}</dd>
+        <StepCard step={2} title="Customer" icon={Users}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Member" required error={fieldErrors.memberId}>
+              <Select
+                value={memberId}
+                placeholder="Search / select a member"
+                invalid={Boolean(fieldErrors.memberId)}
+                onChange={(event) => {
+                  setFieldErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.memberId;
+                    return next;
+                  });
+                  setMemberId(event.target.value);
+                }}
+                options={members}
+              />
+            </FormField>
+            <FormField label="Branch" required error={fieldErrors.branchId}>
+              <Select
+                value={branchId}
+                invalid={Boolean(fieldErrors.branchId)}
+                onChange={(event) => {
+                  setFieldErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.branchId;
+                    return next;
+                  });
+                  setBranchId(event.target.value);
+                }}
+                options={branches.map((branch) => ({ value: branch.id, label: `${branch.name} (${branch.code})` }))}
+              />
+            </FormField>
+          </div>
+          {member && (
+            <div className="mt-4 flex items-center gap-3 rounded-xl border border-primary-100 bg-primary-50/60 p-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary-600 to-accent-500 text-sm font-semibold text-white">
+                {initialsOf(member.fullName)}
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-ink">{member.fullName}</p>
+                <p className="truncate text-xs text-neutral-500">
+                  {[member.code, member.phone].filter(Boolean).join(" · ") || "No code or phone on file"}
+                </p>
+              </div>
             </div>
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Phone</dt>
-              <dd className="text-ink">{member.phone}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Email</dt>
-              <dd className="text-ink">{member.email ?? "—"}</dd>
-            </div>
-            <div>
-              <dt className="text-xs text-neutral-500 uppercase">Address</dt>
-              <dd className="text-ink">{member.address ?? "—"}</dd>
-            </div>
-          </dl>
-        )}
-      </FormSection>
+          )}
+        </StepCard>
+      </div>
 
-      <FormSection title="3. Membership" columns={1}>
-        {member?.membership ? (
-          <div className="space-y-3">
-            <dl className="grid grid-cols-1 gap-3 text-sm sm:grid-cols-3">
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Current plan</dt>
-                <dd className="text-ink">{member.membership.planName}</dd>
+      <StepCard
+        step={3}
+        title="Membership information"
+        icon={BadgeCheck}
+        tone={activeMembership ? "success" : "default"}
+      >
+        {activeMembership ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge tone="success" withDot>
+                  Active membership
+                </Badge>
+                <span className="text-sm font-semibold text-ink">{activeMembership.planName}</span>
               </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Membership ID</dt>
-                <dd className="text-ink" title={member.membership.id}>
-                  {member.membership.id.slice(0, 8)}…
-                </dd>
+              <div className="flex flex-wrap gap-2">
+                <ButtonLink href={`/memberships/active/${activeMembership.id}`} variant="outline" size="sm">
+                  View membership
+                </ButtonLink>
+                <ButtonLink href={`/memberships/active/add?memberId=${memberId}`} variant="outline" size="sm">
+                  Create new membership
+                </ButtonLink>
               </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Status</dt>
-                <dd className="text-ink">{member.membership.status}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Start</dt>
-                <dd className="text-ink">{formatDate(member.membership.startDate)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Base duration</dt>
-                <dd className="text-ink">{activePlanDuration ? `${activePlanDuration} days` : "—"}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Membership valid until</dt>
-                <dd className="text-ink">{formatDate(member.membership.endDate)}</dd>
-              </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Branch</dt>
-                <dd className="text-ink">{branches.find((branch) => branch.id === member.branchId)?.name ?? "—"}</dd>
-              </div>
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 lg:grid-cols-4">
+              <InfoTile label="Plan" value={activeMembership.planName} />
+              <InfoTile
+                label="Membership ID"
+                value={<span title={activeMembership.id}>{activeMembership.id.slice(0, 8)}…</span>}
+              />
+              <InfoTile label="Start date" value={formatDate(activeMembership.startDate)} />
+              <InfoTile
+                label="Base duration"
+                value={activePlanDuration ? `${activePlanDuration} days` : "—"}
+              />
+              <InfoTile label="Valid until" value={formatDate(activeMembership.endDate)} />
+              <InfoTile label="Status" value={<StatusBadge status={activeMembership.status} />} />
+              <InfoTile label="Branch" value={memberBranch?.name ?? currentBranch?.name ?? "—"} />
+              <InfoTile label="Trainer" value={member?.trainerName ?? "Unassigned"} />
             </dl>
-            <div className="flex flex-wrap gap-2">
-              <ButtonLink href={`/memberships/active/${member.membership.id}`} variant="outline" size="sm">
-                View membership
-              </ButtonLink>
-              <ButtonLink href={`/memberships/active/add?memberId=${memberId}`} variant="outline" size="sm">
-                Create new membership
-              </ButtonLink>
-            </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            <p className="text-sm text-neutral-500">
-              No active membership on this member. Select a Membership Plan below to charge a new membership, or create one first.
-            </p>
-            {memberId && (
-              <ButtonLink href={`/memberships/active/add?memberId=${memberId}`} variant="outline" size="sm">
-                Create new membership
-              </ButtonLink>
-            )}
+          <div className="rounded-xl border border-dashed border-border bg-surface-muted p-5">
+            <div className="flex items-start gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-primary-600">
+                <BadgeCheck aria-hidden="true" className="size-5" />
+              </span>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-ink">No active membership</p>
+                <p className="mt-0.5 text-sm text-neutral-500">
+                  You can select a Membership Plan below to create a new membership charge.
+                </p>
+                {memberId && (
+                  <ButtonLink
+                    href={`/memberships/active/add?memberId=${memberId}`}
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                  >
+                    Create new membership
+                  </ButtonLink>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
         {validityPlan && (
-          <div className="mt-4 rounded-card border border-border bg-surface p-4">
-            <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-ink">
-              <CalendarPlus aria-hidden="true" className="size-4" />
+          <div className="mt-4 rounded-xl border border-primary-100 bg-primary-50/50 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-primary-800">
+              <CalendarClock aria-hidden="true" className="size-4" />
               Membership validity
+              <span className="text-xs font-normal text-neutral-500">(service window, not the invoice due date)</span>
             </div>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
+            <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
               {!extendsActive && (
                 <FormField label="Start date" required error={fieldErrors.membershipStart}>
                   <Input
@@ -805,17 +1067,15 @@ export function NewInvoiceForm() {
                 />
               </FormField>
             </div>
-            <div className="mt-3 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Extra validity</dt>
-                <dd className="text-ink">
-                  {meaningfulExtra ? `+${months} month(s), +${days} day(s)` : "None"}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-xs text-neutral-500 uppercase">Membership valid until</dt>
-                <dd className="font-medium text-ink">{formatDate(validUntil)}</dd>
-              </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <InfoTile
+                label="Extra validity"
+                value={meaningfulExtra ? `+${months} month(s), +${days} day(s)` : "None"}
+              />
+              <InfoTile
+                label="Membership valid until"
+                value={<span className="text-primary-800">{formatDate(validUntil)}</span>}
+              />
             </div>
             <label className="mt-3 flex items-center gap-2 text-sm text-ink">
               <input
@@ -826,6 +1086,7 @@ export function NewInvoiceForm() {
                   setActivateMembership(event.target.checked);
                 }}
                 disabled={activeMembership ? !canExtendMembership : !canCreateMembership}
+                className="size-4 rounded border-border text-primary-600 focus-visible:ring-primary-500"
               />
               <span>
                 {activeMembership
@@ -834,15 +1095,19 @@ export function NewInvoiceForm() {
               </span>
             </label>
             <p className="mt-1 text-xs text-neutral-500">
-              Selecting a plan only fills this invoice line. The membership is created or extended only when the box above is ticked.
+              Selecting a plan only fills this invoice line. The membership is created or extended only when the box
+              above is ticked.
             </p>
           </div>
         )}
-      </FormSection>
+      </StepCard>
 
-      <Card className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink">4. Invoice items</h2>
+      <StepCard
+        step={4}
+        title="Invoice items"
+        description="Add each charge on the invoice. Membership lines require a plan."
+        icon={ListPlus}
+        actions={
           <Button
             type="button"
             variant="outline"
@@ -855,278 +1120,396 @@ export function NewInvoiceForm() {
             <Plus aria-hidden="true" className="size-4" />
             Add item
           </Button>
-        </div>
+        }
+      >
         {fieldErrors.items ? (
-          <p role="alert" className="text-xs font-medium text-red-600">{fieldErrors.items}</p>
+          <p role="alert" className="mb-3 text-xs font-medium text-red-600">
+            {fieldErrors.items}
+          </p>
         ) : null}
-        <div className="overflow-x-auto">
-          <table className="min-w-full text-sm">
-            <thead className="text-left text-xs tracking-wide text-neutral-500 uppercase">
-              <tr>
-                <th className="pb-2">Description</th>
-                <th className="pb-2">Type</th>
-                <th className="pb-2">Membership plan</th>
-                <th className="pb-2">HSN / SAC</th>
-                <th className="pb-2">Qty</th>
-                <th className="pb-2">Rate</th>
-                <th className="pb-2">Discount</th>
-                <th className="pb-2">GST %</th>
-                <th className="pb-2 text-right">Total</th>
-                <th className="pb-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((item, index) => {
-                const gstOptions = gstRates.length
-                  ? gstRates.map((rate) => ({ value: String(rate.rate), label: `${rate.name} (${rate.rate}%)` }))
-                  : [
-                      { value: "0", label: "0%" },
-                      { value: "5", label: "5%" },
-                      { value: "12", label: "12%" },
-                      { value: "18", label: "18%" },
-                      { value: "28", label: "28%" },
-                    ];
-                if (item.taxRate && !gstOptions.some((option) => option.value === item.taxRate)) {
-                  gstOptions.unshift({ value: item.taxRate, label: `${item.taxRate}%` });
-                }
-                return (
-                  <tr key={index} className="align-top">
-                    <td className="py-2 pr-2 min-w-40">
-                      <Input
-                        value={item.description}
-                        invalid={Boolean(fieldErrors[`item.${index}.description`])}
-                        onChange={(event) => updateItem(index, { description: event.target.value })}
-                      />
-                      {fieldErrors[`item.${index}.description`] ? (
-                        <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.description`]}</p>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-2 w-40">
-                      <Select
-                        value={item.itemType}
-                        onChange={(event) => updateItem(index, { itemType: event.target.value })}
-                        options={INVOICE_ITEM_TYPES.map((type) => ({ value: type, label: INVOICE_ITEM_TYPE_LABELS[type] }))}
-                      />
-                    </td>
-                    <td className="py-2 pr-2 min-w-52">
-                      {showsPlanSelector(item.itemType) ? (
-                        <>
-                          <Select
-                            value={item.planId}
-                            placeholder={plans.length ? "Select a membership plan" : "No active plans"}
-                            invalid={Boolean(fieldErrors[`item.${index}.planId`])}
-                            onChange={(event) => updateItem(index, { planId: event.target.value })}
-                            options={plans.map((plan) => ({
-                              value: plan.id,
-                              label: planOptionLabel(plan, (value) => formatCurrency(value, currency)),
-                            }))}
-                          />
-                          {fieldErrors[`item.${index}.planId`] ? (
-                            <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.planId`]}</p>
-                          ) : null}
-                        </>
-                      ) : (
-                        <span className="block h-10 text-sm text-neutral-400">—</span>
-                      )}
-                    </td>
-                    <td className="py-2 pr-2 w-28">
-                      <Input
-                        value={item.hsnSac}
-                        maxLength={20}
-                        onChange={(event) => updateItem(index, { hsnSac: event.target.value })}
-                      />
-                    </td>
-                    <td className="py-2 pr-2 w-20">
-                      <Input
-                        type="number"
-                        min={0.001}
-                        step={0.001}
-                        value={item.quantity}
-                        invalid={Boolean(fieldErrors[`item.${index}.quantity`])}
-                        onChange={(event) => updateItem(index, { quantity: event.target.value })}
-                      />
-                      {fieldErrors[`item.${index}.quantity`] ? (
-                        <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.quantity`]}</p>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-2 w-28">
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.unitPrice}
-                        invalid={Boolean(fieldErrors[`item.${index}.unitPrice`])}
-                        onChange={(event) => updateItem(index, { unitPrice: event.target.value })}
-                      />
-                      {fieldErrors[`item.${index}.unitPrice`] ? (
-                        <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.unitPrice`]}</p>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-2 w-24">
-                      <Input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={item.discount}
-                        invalid={Boolean(fieldErrors[`item.${index}.discount`])}
-                        onChange={(event) => updateItem(index, { discount: event.target.value })}
-                      />
-                      {fieldErrors[`item.${index}.discount`] ? (
-                        <p role="alert" className="mt-1 text-xs font-medium text-red-600">{fieldErrors[`item.${index}.discount`]}</p>
-                      ) : null}
-                    </td>
-                    <td className="py-2 pr-2 w-24">
-                      <Select
-                        value={item.taxRate}
-                        onChange={(event) => {
-                          const nextRate = event.target.value;
-                          const match = gstRates.find((rate) => String(rate.rate) === nextRate);
-                          updateItem(index, {
-                            taxRate: nextRate,
-                            hsnSac: item.hsnSac || match?.hsnSac || "",
-                          });
-                        }}
-                        options={gstOptions}
-                      />
-                    </td>
-                    <td className="py-2 pr-2 text-right tabular-nums">{formatCurrency(computed[index]?.lineTotal ?? 0, currency)}</td>
-                    <td className="py-2">
-                      {items.length > 1 && (
-                        <Button type="button" variant="ghost" size="icon" onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}>
-                          <Trash2 aria-hidden="true" className="size-4" />
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
 
-      <FormSection title="5. Tax / additional details" columns={1}>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-          <FormField label="Place of supply">
-            <Input value={placeOfSupply} onChange={(event) => setPlaceOfSupply(event.target.value)} />
-          </FormField>
-          <FormField label="Round off">
-            <Input type="number" step={0.01} value={roundOff} onChange={(event) => setRoundOff(event.target.value)} />
-          </FormField>
-          <FormField label="Tax mode" hint="Configured in Tax / GST settings">
-            <Input value={taxModeSetting === "inclusive" ? "Tax inclusive" : "Tax exclusive"} disabled />
-          </FormField>
+        <div
+          className={cn(
+            "hidden gap-3 border-b border-border pb-2 text-[11px] font-semibold tracking-wide text-neutral-500 uppercase lg:grid",
+            ITEMS_GRID,
+          )}
+        >
+          <span className="text-center">#</span>
+          <span>Description</span>
+          <span>Type</span>
+          <span>Membership plan</span>
+          <span className="text-right">Qty</span>
+          <span className="text-right">Rate</span>
+          <span className="text-right">Discount</span>
+          <span className="text-right">GST %</span>
+          <span className="text-right">Total</span>
+          <span className="text-right">Action</span>
         </div>
-        <FormField label="Notes">
-          <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
-        </FormField>
-      </FormSection>
 
-      <Card className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink">6. Payment</h2>
-          <Button type="button" variant="outline" size="sm" onClick={addPayment}>
+        <div className="divide-y divide-border">
+          {items.map((item, index) => {
+            const gstOptions = gstRates.length
+              ? gstRates.map((rate) => ({ value: String(rate.rate), label: `${rate.name} (${rate.rate}%)` }))
+              : [
+                  { value: "0", label: "0%" },
+                  { value: "5", label: "5%" },
+                  { value: "12", label: "12%" },
+                  { value: "18", label: "18%" },
+                  { value: "28", label: "28%" },
+                ];
+            if (item.taxRate && !gstOptions.some((option) => option.value === item.taxRate)) {
+              gstOptions.unshift({ value: item.taxRate, label: `${item.taxRate}%` });
+            }
+            return (
+              <div key={index} className="py-3 first:pt-3">
+                <div className={cn("grid grid-cols-2 gap-3 lg:items-start", ITEMS_GRID)}>
+                  <div className="hidden items-start justify-center pt-2 text-xs font-medium text-neutral-400 lg:flex">
+                    {index + 1}
+                  </div>
+
+                  <ItemCell label={`Item ${index + 1}`} className="col-span-2 lg:col-span-1">
+                    <Input
+                      value={item.description}
+                      invalid={Boolean(fieldErrors[`item.${index}.description`])}
+                      onChange={(event) => updateItem(index, { description: event.target.value })}
+                    />
+                    <Input
+                      value={item.hsnSac}
+                      maxLength={20}
+                      placeholder="HSN / SAC (optional)"
+                      className="mt-2 h-8 text-xs"
+                      onChange={(event) => updateItem(index, { hsnSac: event.target.value })}
+                    />
+                    {fieldErrors[`item.${index}.description`] ? (
+                      <p role="alert" className="mt-1 text-xs font-medium text-red-600">
+                        {fieldErrors[`item.${index}.description`]}
+                      </p>
+                    ) : null}
+                  </ItemCell>
+
+                  <ItemCell label="Type" className="col-span-1">
+                    <Select
+                      value={item.itemType}
+                      onChange={(event) => updateItem(index, { itemType: event.target.value })}
+                      options={INVOICE_ITEM_TYPES.map((type) => ({ value: type, label: INVOICE_ITEM_TYPE_LABELS[type] }))}
+                    />
+                  </ItemCell>
+
+                  <ItemCell label="Membership plan" className="col-span-2 lg:col-span-1">
+                    {showsPlanSelector(item.itemType) ? (
+                      <>
+                        <PlanPicker
+                          value={item.planId}
+                          options={plans}
+                          currency={currency}
+                          invalid={Boolean(fieldErrors[`item.${index}.planId`])}
+                          placeholder={plans.length ? "Select a membership plan" : "No active plans"}
+                          onChange={(planId) => updateItem(index, { planId })}
+                        />
+                        {fieldErrors[`item.${index}.planId`] ? (
+                          <p role="alert" className="mt-1 text-xs font-medium text-red-600">
+                            {fieldErrors[`item.${index}.planId`]}
+                          </p>
+                        ) : null}
+                      </>
+                    ) : (
+                      <span className="block h-10 text-sm text-neutral-400">—</span>
+                    )}
+                  </ItemCell>
+
+                  <ItemCell label="Quantity" className="col-span-1">
+                    <Input
+                      type="number"
+                      min={0.001}
+                      step={0.001}
+                      value={item.quantity}
+                      invalid={Boolean(fieldErrors[`item.${index}.quantity`])}
+                      onChange={(event) => updateItem(index, { quantity: event.target.value })}
+                    />
+                  </ItemCell>
+
+                  <ItemCell label="Rate" className="col-span-1">
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.unitPrice}
+                      invalid={Boolean(fieldErrors[`item.${index}.unitPrice`])}
+                      onChange={(event) => updateItem(index, { unitPrice: event.target.value })}
+                    />
+                  </ItemCell>
+
+                  <ItemCell label="Discount" className="col-span-1">
+                    <Input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={item.discount}
+                      invalid={Boolean(fieldErrors[`item.${index}.discount`])}
+                      onChange={(event) => updateItem(index, { discount: event.target.value })}
+                    />
+                  </ItemCell>
+
+                  <ItemCell label="GST %" className="col-span-1">
+                    <Select
+                      value={item.taxRate}
+                      onChange={(event) => {
+                        const nextRate = event.target.value;
+                        const match = gstRates.find((rate) => String(rate.rate) === nextRate);
+                        updateItem(index, {
+                          taxRate: nextRate,
+                          hsnSac: item.hsnSac || match?.hsnSac || "",
+                        });
+                      }}
+                      options={gstOptions}
+                    />
+                  </ItemCell>
+
+                  <ItemCell label="Line total" className="col-span-1">
+                    <span className="flex h-10 items-center justify-end tabular-nums text-sm font-medium text-ink lg:pr-1">
+                      {formatCurrency(computed[index]?.lineTotal ?? 0, currency)}
+                    </span>
+                  </ItemCell>
+
+                  <div className="col-span-1 flex items-start justify-end pt-0.5">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Remove item"
+                      disabled={items.length === 1}
+                      onClick={() => setItems((prev) => prev.filter((_, i) => i !== index))}
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                    </Button>
+                  </div>
+                </div>
+                {(fieldErrors[`item.${index}.quantity`] ||
+                  fieldErrors[`item.${index}.unitPrice`] ||
+                  fieldErrors[`item.${index}.discount`] ||
+                  fieldErrors[`item.${index}.planId`]) && (
+                  <p role="alert" className="mt-2 text-xs font-medium text-red-600">
+                    {fieldErrors[`item.${index}.quantity`] ??
+                      fieldErrors[`item.${index}.unitPrice`] ??
+                      fieldErrors[`item.${index}.discount`] ??
+                      fieldErrors[`item.${index}.planId`]}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </StepCard>
+
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+        <StepCard
+          step={5}
+          title="Tax & additional details"
+          icon={Calculator}
+          description="Transaction-level details. Tax mode comes from your Tax / GST settings."
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Place of supply">
+              <Input value={placeOfSupply} onChange={(event) => setPlaceOfSupply(event.target.value)} />
+            </FormField>
+            <FormField label="Round off">
+              <Input type="number" step={0.01} value={roundOff} onChange={(event) => setRoundOff(event.target.value)} />
+            </FormField>
+          </div>
+          <div className="mt-4">
+            <FormField label="Notes">
+              <Textarea rows={3} value={notes} onChange={(event) => setNotes(event.target.value)} />
+            </FormField>
+          </div>
+        </StepCard>
+
+        <section className="rounded-card border border-border bg-surface p-5 shadow-card">
+          <div className="flex items-center gap-2">
+            <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary-50 text-primary-700">
+              <Receipt aria-hidden="true" className="size-5" />
+            </span>
+            <h2 className="text-base font-semibold tracking-tight text-ink">Invoice summary</h2>
+          </div>
+          <dl className="mt-4 space-y-2 text-sm">
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">Subtotal</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.subTotal, currency)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">Discount</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.discount, currency)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">Taxable amount</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.taxableAmount, currency)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">CGST</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.cgst, currency)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">SGST</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.sgst, currency)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt className="text-neutral-500">IGST</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.igst, currency)}</dd>
+            </div>
+            <div className="flex justify-between border-b border-border pb-2">
+              <dt className="text-neutral-500">Round off</dt>
+              <dd className="tabular-nums text-ink">{formatCurrency(totals.roundOff, currency)}</dd>
+            </div>
+          </dl>
+          <div className="mt-4 flex items-center justify-between rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 p-4 text-white">
+            <span className="text-xs font-medium tracking-wide uppercase text-white/75">Grand total</span>
+            <span className="text-2xl font-semibold tabular-nums">
+              {formatCurrency(totals.grandTotal, currency)}
+            </span>
+          </div>
+        </section>
+      </div>
+
+      <StepCard
+        step={6}
+        title="Payment"
+        icon={CreditCard}
+        description="Record what the customer paid now. Split a payment across methods if needed."
+        actions={
+          <Button type="button" variant="outline" size="sm" onClick={addPayment} disabled={!paymentReceived}>
             <Plus aria-hidden="true" className="size-4" />
             Add payment method
           </Button>
+        }
+      >
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={paymentReceived}
+              onChange={(event) => togglePaymentReceived(event.target.checked)}
+              className="size-4 rounded border-border text-primary-600 focus-visible:ring-primary-500"
+            />
+            <span className="font-medium text-ink">Payment received</span>
+          </label>
+          <span className="text-xs text-neutral-500">
+            Uncheck to keep the invoice unpaid and use Save draft.
+          </span>
         </div>
-        <p className="text-sm text-neutral-500">
-          A finalized invoice requires a payment. Use Save draft to keep an unpaid invoice.
-        </p>
+
         {fieldErrors.payments ? (
-          <p role="alert" className="text-xs font-medium text-red-600">{fieldErrors.payments}</p>
+          <p role="alert" className="mt-3 text-xs font-medium text-red-600">
+            {fieldErrors.payments}
+          </p>
         ) : null}
-        <div className="space-y-3">
-          {payments.map((payment, index) => (
-            <div key={payment.key} className="grid grid-cols-1 gap-3 sm:grid-cols-12">
-              <div className="sm:col-span-4">
-                <FormField label="Payment method" required>
-                  <Select
-                    value={payment.method}
-                    onChange={(event) => updatePayment(payment.key, { method: event.target.value })}
-                    options={PAYMENT_METHODS.map((item) => ({ value: item, label: PAYMENT_METHOD_LABELS[item] }))}
-                  />
-                </FormField>
-              </div>
-              <div className="sm:col-span-3">
-                <FormField label="Amount" required error={fieldErrors[`payment.${index}.amount`]}>
-                  <Input
-                    type="number"
-                    min={0.01}
-                    step={0.01}
-                    value={payment.amount}
-                    invalid={Boolean(fieldErrors[`payment.${index}.amount`])}
-                    onChange={(event) => updatePayment(payment.key, { amount: event.target.value })}
-                  />
-                </FormField>
-              </div>
-              <div className="sm:col-span-3">
-                <FormField label="Reference">
-                  <Input
-                    value={payment.reference}
-                    placeholder="UPI / UTR / cheque no."
-                    onChange={(event) => updatePayment(payment.key, { reference: event.target.value })}
-                  />
-                </FormField>
-              </div>
-              <div className="flex items-end sm:col-span-2">
-                {payments.length > 1 && (
-                  <Button type="button" variant="ghost" size="icon" onClick={() => removePayment(payment.key)}>
+
+        {paymentReceived && (
+          <div className="mt-4 space-y-3">
+            {payments.map((payment, index) => (
+              <div
+                key={payment.key}
+                className="grid grid-cols-1 gap-3 rounded-xl border border-border p-3 sm:grid-cols-12 sm:items-end"
+              >
+                <div className="sm:col-span-4">
+                  <FormField label="Payment method" required>
+                    <Select
+                      value={payment.method}
+                      onChange={(event) => updatePayment(payment.key, { method: event.target.value })}
+                      options={PAYMENT_METHODS.map((item) => ({ value: item, label: PAYMENT_METHOD_LABELS[item] }))}
+                    />
+                  </FormField>
+                </div>
+                <div className="sm:col-span-3">
+                  <FormField label="Amount" required error={fieldErrors[`payment.${index}.amount`]}>
+                    <Input
+                      type="number"
+                      min={0.01}
+                      step={0.01}
+                      value={payment.amount}
+                      invalid={Boolean(fieldErrors[`payment.${index}.amount`])}
+                      onChange={(event) => updatePayment(payment.key, { amount: event.target.value })}
+                    />
+                  </FormField>
+                </div>
+                <div className="sm:col-span-3">
+                  <FormField label="Reference">
+                    <Input
+                      value={payment.reference}
+                      placeholder="UPI / UTR / cheque no."
+                      onChange={(event) => updatePayment(payment.key, { reference: event.target.value })}
+                    />
+                  </FormField>
+                </div>
+                <div className="flex sm:col-span-2 sm:justify-end sm:pb-0.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    aria-label="Remove payment"
+                    disabled={payments.length === 1}
+                    onClick={() => removePayment(payment.key)}
+                  >
                     <Trash2 aria-hidden="true" className="size-4" />
                   </Button>
-                )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
-        <div className="grid grid-cols-1 gap-3 border-t border-border pt-3 text-sm sm:grid-cols-3">
-          <div className="flex justify-between sm:block">
-            <span className="text-neutral-500">Invoice total</span>
-            <span className="block tabular-nums font-medium">{formatCurrency(totals.grandTotal, currency)}</span>
+            ))}
           </div>
-          <div className="flex justify-between sm:block">
-            <span className="text-neutral-500">Total received</span>
-            <span className="block tabular-nums font-medium">{formatCurrency(paymentTotal, currency)}</span>
-          </div>
-          <div className="flex justify-between sm:block">
-            <span className="text-neutral-500">Remaining</span>
-            <span className="block tabular-nums font-medium">{formatCurrency(remaining, currency)}</span>
-          </div>
-        </div>
-      </Card>
+        )}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Card className="space-y-2 text-sm">
-          <h2 className="text-sm font-semibold text-ink">7. Summary</h2>
-          <div className="flex justify-between"><span>Member</span><span>{member?.fullName ?? "—"}</span></div>
-          <div className="flex justify-between"><span>Plan</span><span>{validityPlan?.name ?? "—"}</span></div>
-          <div className="flex justify-between"><span>Membership valid until</span><span>{validityPlan ? formatDate(validUntil) : "—"}</span></div>
-          <div className="flex justify-between"><span>Subtotal</span><span className="tabular-nums">{formatCurrency(totals.subTotal, currency)}</span></div>
-          <div className="flex justify-between"><span>Discount</span><span className="tabular-nums">{formatCurrency(totals.discount, currency)}</span></div>
-          <div className="flex justify-between"><span>Taxable</span><span className="tabular-nums">{formatCurrency(totals.taxableAmount, currency)}</span></div>
-          <div className="flex justify-between"><span>CGST</span><span className="tabular-nums">{formatCurrency(totals.cgst, currency)}</span></div>
-          <div className="flex justify-between"><span>SGST</span><span className="tabular-nums">{formatCurrency(totals.sgst, currency)}</span></div>
-          <div className="flex justify-between"><span>IGST</span><span className="tabular-nums">{formatCurrency(totals.igst, currency)}</span></div>
-          <div className="flex justify-between"><span>Round off</span><span className="tabular-nums">{formatCurrency(totals.roundOff, currency)}</span></div>
-          <div className="flex justify-between border-t border-border pt-2 font-semibold"><span>Grand total</span><span className="tabular-nums">{formatCurrency(totals.grandTotal, currency)}</span></div>
-        </Card>
-
-        <Card className="space-y-3 text-sm">
-          <h2 className="text-sm font-semibold text-ink">8. Final actions</h2>
-          <p className="text-neutral-500">
-            {paymentTotal > 0
-              ? `Recording ${formatCurrency(paymentTotal, currency)}. Remaining ${formatCurrency(remaining, currency)}.`
-              : "Enter a payment to finalize, or save a draft."}
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              onClick={() => void submit("finalize")}
-              isLoading={saving === "finalize"}
-              disabled={Boolean(saving)}
+        <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="rounded-xl border border-border bg-surface-muted p-3">
+            <dt className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">Invoice total</dt>
+            <dd className="mt-1 tabular-nums text-lg font-semibold text-ink">
+              {formatCurrency(totals.grandTotal, currency)}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-border bg-surface-muted p-3">
+            <dt className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">Total received</dt>
+            <dd className="mt-1 tabular-nums text-lg font-semibold text-primary-700">
+              {formatCurrency(paymentTotal, currency)}
+            </dd>
+          </div>
+          <div
+            className={cn(
+              "rounded-xl border p-3",
+              remaining > 0 ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50",
+            )}
+          >
+            <dt className="text-[11px] font-medium tracking-wide text-neutral-500 uppercase">Balance due</dt>
+            <dd
+              className={cn(
+                "mt-1 tabular-nums text-lg font-semibold",
+                remaining > 0 ? "text-amber-700" : "text-emerald-700",
+              )}
             >
-              <BadgeCheck aria-hidden="true" className="size-4" />
-              Create invoice & record payment
-            </Button>
+              {formatCurrency(remaining, currency)}
+            </dd>
+          </div>
+        </dl>
+      </StepCard>
+
+      <div className="sticky bottom-0 z-30">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-primary-100 bg-white/95 p-4 shadow-pop backdrop-blur">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+            <span className="inline-flex items-center gap-1.5 text-neutral-500">
+              <Wallet aria-hidden="true" className="size-4 text-primary-600" />
+              Total
+              <span className="font-semibold tabular-nums text-ink">{formatCurrency(totals.grandTotal, currency)}</span>
+            </span>
+            <span className="text-neutral-500">
+              Received
+              <span className="ml-1 font-semibold tabular-nums text-primary-700">
+                {formatCurrency(paymentTotal, currency)}
+              </span>
+            </span>
+            <span className="text-neutral-500">
+              Balance
+              <span className={cn("ml-1 font-semibold tabular-nums", remaining > 0 ? "text-amber-700" : "text-emerald-700")}>
+                {formatCurrency(remaining, currency)}
+              </span>
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
             <Button
               variant="outline"
               onClick={() => void submit("draft")}
@@ -1135,8 +1518,16 @@ export function NewInvoiceForm() {
             >
               Save draft
             </Button>
+            <Button
+              onClick={() => void submit("finalize")}
+              isLoading={saving === "finalize"}
+              disabled={Boolean(saving)}
+            >
+              <BadgeCheck aria-hidden="true" className="size-4" />
+              Create invoice &amp; record payment
+            </Button>
           </div>
-        </Card>
+        </div>
       </div>
     </div>
   );
