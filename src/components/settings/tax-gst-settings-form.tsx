@@ -31,11 +31,13 @@ const DEFAULTS: TaxValues = {
   hsnSac: "",
   placeOfSupply: "",
   reverseCharge: false,
+  taxMode: "exclusive",
 };
 
 function fromRecord(record: Record<string, unknown>, orgGstin: string | null): TaxValues {
   const rate = String(record.defaultGstRate ?? DEFAULTS.defaultGstRate);
   const allowed = GST_RATES.some((item) => item.value === rate);
+  const taxMode = record.taxMode === "inclusive" ? "inclusive" : "exclusive";
   return {
     gstRegistered: typeof record.gstRegistered === "boolean" ? record.gstRegistered : Boolean(orgGstin),
     gstin:
@@ -46,6 +48,7 @@ function fromRecord(record: Record<string, unknown>, orgGstin: string | null): T
     hsnSac: typeof record.hsnSac === "string" ? record.hsnSac : "",
     placeOfSupply: typeof record.placeOfSupply === "string" ? record.placeOfSupply : "",
     reverseCharge: typeof record.reverseCharge === "boolean" ? record.reverseCharge : false,
+    taxMode,
   };
 }
 
@@ -192,7 +195,24 @@ export function TaxGstSettingsForm() {
             </FormField>
           </FormSection>
 
-          <FormSection title="Defaults" description="Applied to new invoices until billing is implemented.">
+          <FormSection title="Defaults" description="Applied to new invoices.">
+            <FormField
+              label="Tax mode"
+              required
+              error={errors.taxMode}
+              hint="Whether newly created invoice prices already include tax."
+            >
+              <Select
+                value={values.taxMode}
+                invalid={Boolean(errors.taxMode)}
+                onChange={(event) => setField("taxMode", event.target.value as TaxValues["taxMode"])}
+                disabled={!canManage}
+                options={[
+                  { value: "exclusive", label: "Tax exclusive" },
+                  { value: "inclusive", label: "Tax inclusive" },
+                ]}
+              />
+            </FormField>
             <FormField label="Default GST rate" required error={errors.defaultGstRate}>
               <Select
                 options={[...GST_RATES]}

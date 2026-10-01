@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  addMonthsIso,
+  computeBaseEndDate,
+  computeValidityEnd,
+  daysBetweenIso,
   planItemDefaults,
   planOptionLabel,
   requiresMembershipPlan,
@@ -56,5 +60,21 @@ describe("plan item helpers", () => {
 
   it("labels plans from live name, code, duration and price", () => {
     expect(planOptionLabel(plan, (value) => `₹${value}`)).toBe("Gold (GOLD-12) · 365 days · ₹12000");
+  });
+
+  it("computes an inclusive base end date from the plan duration", () => {
+    expect(computeBaseEndDate("2026-10-01", 365)).toBe("2027-09-30");
+    expect(computeBaseEndDate("2026-10-01", 30)).toBe("2026-10-30");
+    expect(computeBaseEndDate("2026-10-01", 1)).toBe("2026-10-01");
+  });
+
+  it("adds extra validity months and days", () => {
+    expect(computeValidityEnd("2026-10-01", 365, 5, 0)).toBe("2028-02-29");
+    expect(computeValidityEnd("2026-10-01", 365, 0, 10)).toBe("2027-10-10");
+    expect(addMonthsIso("2026-01-31", 1)).toBe("2026-02-28");
+  });
+
+  it("measures day gaps for extending an active membership", () => {
+    expect(daysBetweenIso("2027-09-30", "2028-02-29")).toBe(152);
   });
 });

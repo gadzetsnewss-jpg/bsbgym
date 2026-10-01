@@ -184,6 +184,35 @@ export async function fetchMembershipFreezes(
   };
 }
 
+export async function createMembership(input: {
+  organizationId: string;
+  branchId: string;
+  memberId: string;
+  planId: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  price?: number | null;
+  discount?: number | null;
+  notes?: string | null;
+}): Promise<OrgResult<{ id: string }>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase.rpc("create_membership", {
+    p_org_id: input.organizationId,
+    p_branch_id: input.branchId,
+    p_member_id: input.memberId,
+    p_plan_id: input.planId,
+    p_start_date: input.startDate ?? null,
+    p_end_date: input.endDate ?? null,
+    p_price: input.price ?? null,
+    p_discount: input.discount ?? null,
+    p_notes: input.notes ?? null,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: { id: String(data) }, error: null };
+}
+
 export async function extendMembership(
   membershipId: string,
   days: number,

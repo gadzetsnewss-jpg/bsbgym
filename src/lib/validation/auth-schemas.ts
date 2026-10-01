@@ -247,6 +247,8 @@ export const taxGstSettingsSchema = z
     hsnSac: z.string().trim().max(20),
     placeOfSupply: z.string().trim().max(80),
     reverseCharge: z.boolean(),
+    /** Tax inclusive/exclusive behaviour applied to new invoices. */
+    taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
   })
   .refine((values) => !values.gstRegistered || values.gstin.length === 15, {
     message: "GSTIN is required when the organization is GST registered",

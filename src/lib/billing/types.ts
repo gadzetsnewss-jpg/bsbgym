@@ -17,7 +17,16 @@ export const INVOICE_ITEM_TYPES = [
   "other",
 ] as const;
 
-export const PAYMENT_METHODS = ["cash", "upi", "card", "bank_transfer", "other"] as const;
+export const PAYMENT_METHODS = [
+  "cash",
+  "upi",
+  "card",
+  "netbanking",
+  "wallet",
+  "cheque",
+  "bank_transfer",
+  "other",
+] as const;
 
 export const CREDIT_NOTE_REASONS = [
   "cancellation",
