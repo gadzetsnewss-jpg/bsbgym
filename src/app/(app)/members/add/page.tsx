@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
-import { MemberForm } from "@/components/members/member-form";
+import { AddMemberForm } from "@/components/members/add-member-form";
 
 export const metadata: Metadata = {
   title: "Add member",
 };
 
 export default function AddMemberPage() {
-  return <MemberForm mode="create" />;
+  return <AddMemberForm />;
 }
