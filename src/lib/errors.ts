@@ -39,8 +39,15 @@ const MESSAGES: Record<FriendlyErrorCode, string> = {
 const NOT_FOUND_KEYS: readonly string[] = [
   "not found",
   "no such",
-  "does not exist",
   "could not be found",
+];
+
+const SCHEMA_MISSING_KEYS: readonly string[] = [
+  "function ",
+  "column ",
+  "relation ",
+  "type ",
+  "operator ",
 ];
 
 const FORBIDDEN_KEYS: readonly string[] = [
@@ -103,6 +110,12 @@ export function toFriendlyError(error: unknown): FriendlyError {
   if (DUPLICATE_KEYS.some((key) => text.includes(key))) {
     return { code: "duplicate_user", message: MESSAGES.duplicate_user };
   }
+  if (
+    text.includes("does not exist") &&
+    SCHEMA_MISSING_KEYS.some((key) => text.includes(key))
+  ) {
+    return { code: "database", message: MESSAGES.database };
+  }
   if (NOT_FOUND_KEYS.some((key) => text.includes(key))) {
     return { code: "not_found", message: MESSAGES.not_found };
   }
@@ -153,6 +166,10 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("membership not found") ||
     text.includes("at least one invoice item is required") ||
     text.includes("tax mode is invalid") ||
+    text.includes("quantity must be greater than zero") ||
+    text.includes("item type is invalid") ||
+    text.includes("membership plan is required") ||
+    text.includes("member already has an overlapping active membership") ||
     text.includes("invoice not found") ||
     text.includes("invoice is already cancelled") ||
     text.includes("paid invoices cannot be cancelled") ||

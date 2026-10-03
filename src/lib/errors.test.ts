@@ -31,6 +31,25 @@ describe("toFriendlyError", () => {
   it("maps not-found errors to not_found", () => {
     expect(toFriendlyError({ message: "role not found" }).code).toBe("not_found");
     expect(toFriendlyError({ message: "member could not be found" }).code).toBe("not_found");
+    expect(toFriendlyError({ message: "membership plan not found" }).code).toBe("not_found");
+  });
+
+  it("maps missing Postgres functions and columns to database, not not_found", () => {
+    expect(
+      toFriendlyError({
+        message: "function public.require_org_permission(uuid, unknown) does not exist",
+      }).code,
+    ).toBe("database");
+    expect(
+      toFriendlyError({
+        message: 'column "membership_id" of relation "invoices" does not exist',
+      }).code,
+    ).toBe("database");
+    expect(
+      friendlyMessage({
+        message: "function public.require_org_permission(uuid, unknown) does not exist",
+      }),
+    ).toBe("Something went wrong on our end. Please try again.");
   });
 
   it("preserves useful validation messages", () => {
