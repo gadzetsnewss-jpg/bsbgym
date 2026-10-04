@@ -44,14 +44,16 @@ import {
   fetchInvoice,
   fetchMemberForInvoice,
   fetchMembershipPlansForInvoice,
-  recordPayment,
+  recordPayments,
 } from "@/lib/billing/client";
 import {
   calculateInvoiceTotals,
   calculateLineGst,
   resolveSupplyKind,
+  roundMoney,
   type TaxMode,
 } from "@/lib/billing/gst";
+import { collectPaymentRows, paymentRowsTotal } from "@/lib/billing/payments";
 import { loadMemberOptions } from "@/lib/operations/adapters";
 import { createMembership, extendMembership } from "@/lib/org/memberships";
 import { fetchOrganizationSetting, settingValueAsRecord } from "@/lib/org/settings";
@@ -452,7 +454,7 @@ export function NewInvoiceForm() {
   const totals = calculateInvoiceTotals(computed, Number(roundOff) || 0);
 
   const paymentTotal = React.useMemo(
-    () => payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0),
+    () => roundMoney(payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0)),
     [payments],
   );
   const remaining = Math.max(totals.grandTotal - paymentTotal, 0);
@@ -615,6 +617,9 @@ export function NewInvoiceForm() {
           if (!Number.isFinite(amount) || amount <= 0) {
             nextErrors[`payment.${index}.amount`] = "Enter an amount greater than zero.";
           }
+          if (!PAYMENT_METHODS.includes(payment.method as (typeof PAYMENT_METHODS)[number])) {
+            nextErrors[`payment.${index}.method`] = "Select a valid payment method.";
+          }
         });
       }
     }
@@ -681,28 +686,25 @@ export function NewInvoiceForm() {
       return;
     }
 
-    const methods: string[] = [];
-    for (const payment of payments) {
-      const amount = Number(payment.amount) || 0;
-      if (amount <= 0) continue;
-      const paid = await recordPayment({
+    const paymentRows = collectPaymentRows(payments);
+    const methods = paymentRows.map((payment) => payment.method);
+
+    if (paymentRows.length > 0) {
+      const paid = await recordPayments({
         organizationId: orgId,
         invoiceId,
-        amount,
-        method: payment.method,
-        reference: payment.reference,
+        payments: paymentRows,
       });
       if (paid.error) {
         setSaving(null);
         toast({
-          title: "Invoice created, payment failed",
+          title: "Invoice created, payments failed",
           description: paid.error.message,
           variant: "error",
         });
         router.push(`/billing/invoices/${invoiceId}`);
         return;
       }
-      methods.push(payment.method);
     }
 
     let membershipWarning: string | null = null;
@@ -734,7 +736,7 @@ export function NewInvoiceForm() {
     }
 
     const invoiceResult = await fetchInvoice(orgId, invoiceId);
-    const paymentTotalRounded = Math.min(paymentTotal, totals.grandTotal);
+    const paymentTotalRounded = Math.min(paymentRowsTotal(paymentRows), totals.grandTotal);
     const invoice: InvoiceRow =
       invoiceResult.data ??
       ({

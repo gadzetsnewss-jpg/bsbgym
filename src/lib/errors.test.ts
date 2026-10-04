@@ -60,6 +60,10 @@ describe("toFriendlyError", () => {
       "validation",
     );
     expect(toFriendlyError({ message: "currency is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "installments require an outstanding balance" }).code).toBe(
+      "validation",
+    );
+    expect(toFriendlyError({ message: "at least one payment is required" }).code).toBe("validation");
   });
 
   it("falls back to database for unexpected errors", () => {

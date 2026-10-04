@@ -93,4 +93,14 @@ describe("installment split", () => {
       { sortOrder: 0, dueDate: "2026-01-01", amount: 499.5 },
     ]);
   });
+
+  it("splits remaining invoice balance exactly, last installment absorbs paise", () => {
+    const remaining = invoiceBalance(15748.95, 5000);
+    expect(remaining).toBe(10748.95);
+    const items = splitInstallments(remaining, 3, "2026-10-04");
+    expect(items).toHaveLength(3);
+    expect(items.map((item) => item.amount)).toEqual([3582.98, 3582.98, 3582.99]);
+    expect(roundMoney(items.reduce((sum, item) => sum + item.amount, 0))).toBe(10748.95);
+    expect(items[2].dueDate).toBe("2026-12-04");
+  });
 });

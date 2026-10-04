@@ -356,6 +356,32 @@ export async function recordPayment(input: {
   });
 }
 
+export interface PaymentRowInput {
+  amount: number;
+  method: string;
+  reference?: string | null;
+  paidAt?: string | null;
+  notes?: string | null;
+}
+
+export async function recordPayments(input: {
+  organizationId: string;
+  invoiceId: string;
+  payments: PaymentRowInput[];
+}): Promise<OrgResult> {
+  return rpcVoid("record_payments", {
+    p_org_id: input.organizationId,
+    p_invoice_id: input.invoiceId,
+    p_payments: input.payments.map((payment) => ({
+      amount: roundMoney(payment.amount),
+      method: payment.method,
+      reference: payment.reference ?? null,
+      paid_at: payment.paidAt ?? null,
+      notes: payment.notes ?? null,
+    })),
+  });
+}
+
 export async function createInstallmentSchedule(
   invoiceId: string,
   count: number,
@@ -469,6 +495,28 @@ export async function fetchPayments(
   };
 }
 
+const INSTALLMENT_SELECT =
+  "id, invoice_id, due_date, amount, paid_amount, status, sort_order, invoices(invoice_number, total, member_id, gym_members(full_name, first_name, last_name, code))";
+
+function mapInstallment(row: Row, today: string): InstallmentRow {
+  const invoice = embed(row.invoices);
+  const amount = asNumber(row.amount);
+  const paid = asNumber(row.paid_amount);
+  return {
+    id: asString(row.id),
+    invoiceId: asString(row.invoice_id),
+    invoiceNumber: asString(invoice?.invoice_number),
+    memberName: memberName(invoice?.gym_members),
+    dueDate: asString(row.due_date),
+    amount,
+    paidAmount: paid,
+    remaining: roundMoney(Math.max(amount - paid, 0)),
+    status: installmentStatus(asString(row.due_date), amount, paid, today),
+    sortOrder: asNumber(row.sort_order),
+    invoiceTotal: asNumber(invoice?.total),
+  };
+}
+
 export async function fetchInstallments(
   organizationId: string,
 ): Promise<OrgResult<InstallmentRow[]>> {
@@ -476,32 +524,35 @@ export async function fetchInstallments(
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("installments" as AnyTable)
-    .select(
-      "id, invoice_id, due_date, amount, paid_amount, status, sort_order, invoices(invoice_number, total, member_id, gym_members(full_name, first_name, last_name, code))",
-    )
+    .select(INSTALLMENT_SELECT)
     .eq("organization_id", organizationId)
     .order("due_date" as "created_at", { ascending: true });
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   const today = todayIso();
-  const rows = ((data ?? []) as unknown as Row[]).map((row) => {
-    const invoice = embed(row.invoices);
-    const amount = asNumber(row.amount);
-    const paid = asNumber(row.paid_amount);
-    return {
-      id: asString(row.id),
-      invoiceId: asString(row.invoice_id),
-      invoiceNumber: asString(invoice?.invoice_number),
-      memberName: memberName(invoice?.gym_members),
-      dueDate: asString(row.due_date),
-      amount,
-      paidAmount: paid,
-      remaining: roundMoney(Math.max(amount - paid, 0)),
-      status: installmentStatus(asString(row.due_date), amount, paid, today),
-      sortOrder: asNumber(row.sort_order),
-      invoiceTotal: asNumber(invoice?.total),
-    } satisfies InstallmentRow;
-  });
-  return { data: rows, error: null };
+  return {
+    data: ((data ?? []) as unknown as Row[]).map((row) => mapInstallment(row, today)),
+    error: null,
+  };
+}
+
+export async function fetchInvoiceInstallments(
+  organizationId: string,
+  invoiceId: string,
+): Promise<OrgResult<InstallmentRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("installments" as AnyTable)
+    .select(INSTALLMENT_SELECT)
+    .eq("organization_id", organizationId)
+    .eq("invoice_id" as "id", invoiceId)
+    .order("sort_order" as "created_at", { ascending: true });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  const today = todayIso();
+  return {
+    data: ((data ?? []) as unknown as Row[]).map((row) => mapInstallment(row, today)),
+    error: null,
+  };
 }
 
 export async function fetchCreditNotes(

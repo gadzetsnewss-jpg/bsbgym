@@ -178,9 +178,11 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("payment amount must be greater than zero") ||
     text.includes("payment method is invalid") ||
     text.includes("payment exceeds the outstanding balance") ||
+    text.includes("at least one payment is required") ||
     text.includes("installments require an issued invoice") ||
     text.includes("this invoice already has an installment schedule") ||
     text.includes("installment count must be between 1 and 24") ||
+    text.includes("installments require an outstanding balance") ||
     text.includes("applied credit notes cannot be cancelled") ||
     text.includes("payment not found") ||
     text.includes("refund amount must be greater than zero") ||

@@ -2291,6 +2291,14 @@ export interface Database {
         };
         Returns: string;
       };
+      record_payments: {
+        Args: {
+          p_org_id: string;
+          p_invoice_id: string;
+          p_payments: Json;
+        };
+        Returns: void;
+      };
       create_installment_schedule: {
         Args: {
           p_invoice_id: string;
