@@ -2254,6 +2254,56 @@ export interface Database {
         };
         Returns: void;
       };
+      create_workout_plan_item: {
+        Args: {
+          p_org_id: string;
+          p_plan_id: string;
+          p_exercise_id: string | null;
+          p_day_label: string | null;
+          p_sets: number | null;
+          p_reps: string | null;
+          p_weight: string | null;
+          p_rest_seconds: number | null;
+          p_sort_order: number | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_workout_plan_item: {
+        Args: {
+          p_item_id: string;
+          p_exercise_id: string | null;
+          p_day_label: string | null;
+          p_sets: number | null;
+          p_reps: string | null;
+          p_weight: string | null;
+          p_rest_seconds: number | null;
+          p_sort_order: number | null;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      create_diet_plan_item: {
+        Args: {
+          p_org_id: string;
+          p_diet_plan_id: string;
+          p_meal: string;
+          p_description: string | null;
+          p_calories: number | null;
+          p_sort_order: number | null;
+        };
+        Returns: string;
+      };
+      update_diet_plan_item: {
+        Args: {
+          p_item_id: string;
+          p_meal: string;
+          p_description: string | null;
+          p_calories: number | null;
+          p_sort_order: number | null;
+        };
+        Returns: void;
+      };
       create_invoice: {
         Args: {
           p_org_id: string;

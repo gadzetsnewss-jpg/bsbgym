@@ -485,6 +485,13 @@ export const ptSessionResource: ResourceConfig<PtSessionRow> = {
   validate: fromZod(ptSessionFormSchema),
   adapter: ptSessionAdapter,
   displayName: (row) => `${row.memberName} PT`,
+  extraRowActions: (row) => [
+    { label: "View member", href: `/members/${row.memberId}` },
+    {
+      label: "Add workout plan",
+      href: `/fitness/workout-plans/add?memberId=${row.memberId}&trainerId=${row.trainerId}`,
+    },
+  ],
 };
 
 const bookingFields = [
@@ -763,6 +770,10 @@ export const workoutPlanResource: ResourceConfig<WorkoutPlanRow> = {
   validate: fromZod(workoutPlanFormSchema),
   adapter: workoutPlanAdapter,
   displayName: (row) => row.name,
+  extraRowActions: (row) => [
+    { label: "View member", href: `/members/${row.memberId}` },
+    { label: "Add measurement", href: `/fitness/measurements/add?memberId=${row.memberId}` },
+  ],
 };
 
 export const dietPlanResource: ResourceConfig<DietPlanRow> = {
@@ -819,6 +830,9 @@ export const dietPlanResource: ResourceConfig<DietPlanRow> = {
   validate: fromZod(dietPlanFormSchema),
   adapter: dietPlanAdapter,
   displayName: (row) => row.name,
+  extraRowActions: (row) => [
+    { label: "View member", href: `/members/${row.memberId}` },
+  ],
 };
 
 export const bodyMeasurementResource: ResourceConfig<BodyMeasurementRow> = {
@@ -871,6 +885,10 @@ export const bodyMeasurementResource: ResourceConfig<BodyMeasurementRow> = {
   validate: fromZod(bodyMeasurementFormSchema),
   adapter: bodyMeasurementAdapter,
   displayName: (row) => `${row.memberName} measurement`,
+  extraRowActions: (row) => [
+    { label: "View member", href: `/members/${row.memberId}` },
+    { label: "Add progress", href: `/fitness/progress/add?memberId=${row.memberId}` },
+  ],
 };
 
 export const progressEntryResource: ResourceConfig<ProgressEntryRow> = {
@@ -916,6 +934,10 @@ export const progressEntryResource: ResourceConfig<ProgressEntryRow> = {
   validate: fromZod(progressEntryFormSchema),
   adapter: progressEntryAdapter,
   displayName: (row) => `${row.memberName} progress`,
+  extraRowActions: (row) => [
+    { label: "View member", href: `/members/${row.memberId}` },
+    { label: "Add measurement", href: `/fitness/measurements/add?memberId=${row.memberId}` },
+  ],
 };
 
 export const OPERATIONS_RESOURCES = {

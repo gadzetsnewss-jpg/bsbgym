@@ -8,7 +8,11 @@ import {
   type OperationsResourceKey,
 } from "@/lib/operations/resources";
 import { membershipDetailExtras } from "@/components/memberships/membership-detail-extras";
-import type { MembershipRow } from "@/lib/operations/adapters";
+import {
+  dietPlanDetailExtras,
+  workoutPlanDetailExtras,
+} from "@/components/fitness/plan-item-panels";
+import type { DietPlanRow, MembershipRow, WorkoutPlanRow } from "@/lib/operations/adapters";
 
 function operationsConfig(resource: OperationsResourceKey): ResourceConfig<unknown> {
   return OPERATIONS_RESOURCES[resource] as ResourceConfig<unknown>;
@@ -46,7 +50,11 @@ export function OperationsDetail({
     resource === "memberships_renewals" ||
     resource === "memberships_expiring"
       ? (row: unknown) => membershipDetailExtras(row as MembershipRow)
-      : undefined;
+      : resource === "workout_plans"
+        ? (row: unknown) => workoutPlanDetailExtras(row as WorkoutPlanRow)
+        : resource === "diet_plans"
+          ? (row: unknown) => dietPlanDetailExtras(row as DietPlanRow)
+          : undefined;
   return (
     <ResourceDetail config={operationsConfig(resource)} id={id} extras={extras}>
       {children}
