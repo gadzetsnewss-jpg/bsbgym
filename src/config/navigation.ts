@@ -389,6 +389,13 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "CRM",
     items: [
       {
+        title: "Pipeline",
+        href: "/crm",
+        icon: LayoutDashboard,
+        description: "Lead to member pipeline.",
+        permission: "crm.view",
+      },
+      {
         title: "Leads",
         href: "/crm/leads",
         icon: Target,

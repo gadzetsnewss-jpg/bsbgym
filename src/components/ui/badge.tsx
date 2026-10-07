@@ -68,6 +68,8 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   active: "success",
   paid: "success",
   completed: "success",
+  converted: "success",
+  done: "success",
   won: "success",
   renewed: "success",
   confirmed: "success",
@@ -77,6 +79,8 @@ const STATUS_TONE: Record<string, BadgeTone> = {
   inactive: "neutral",
   draft: "neutral",
   new: "info",
+  contacted: "info",
+  qualified: "primary",
   scheduled: "info",
 
   pending: "warning",

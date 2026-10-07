@@ -656,7 +656,14 @@ export function NewInvoiceForm() {
       membershipId: member?.membership?.id ?? (presetMembershipId || null),
       issueDate,
       dueDate: dueDate || null,
-      notes,
+      notes: [
+        notes.trim(),
+        meaningfulExtra
+          ? `Extra validity: +${months} month(s), +${days} day(s). Membership valid until ${validUntil}.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n") || null,
       placeOfSupply,
       taxMode: taxModeSetting,
       roundOff: Number(roundOff) || 0,
@@ -715,7 +722,9 @@ export function NewInvoiceForm() {
           const extended = await extendMembership(
             activeMembership.id,
             extendBy,
-            "Extra validity from invoice",
+            meaningfulExtra
+              ? `Extra validity from invoice: +${months} month(s), +${days} day(s)`
+              : "Extra validity from invoice",
           );
           if (extended.error) membershipWarning = extended.error.message;
         }
@@ -729,7 +738,9 @@ export function NewInvoiceForm() {
           endDate: validUntil,
           price: validityPlan.price,
           discount: 0,
-          notes: "Created from invoice",
+          notes: meaningfulExtra
+            ? `Created from invoice. Extra validity: +${months} month(s), +${days} day(s)`
+            : "Created from invoice",
         });
         if (created.error) membershipWarning = created.error.message;
       }

@@ -170,6 +170,19 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("item type is invalid") ||
     text.includes("membership plan is required") ||
     text.includes("member already has an overlapping active membership") ||
+    text.includes("member already has an open check-in") ||
+    text.includes("member is already booked for this class") ||
+    text.includes("member does not have an active membership") ||
+    text.includes("check-in is not allowed during a membership freeze") ||
+    text.includes("booking is not allowed during a membership freeze") ||
+    text.includes("class session is cancelled") ||
+    text.includes("method is invalid") ||
+    text.includes("check-out cannot be before check-in") ||
+    text.includes("duration must be greater than zero") ||
+    text.includes("scheduled time is required") ||
+    text.includes("capacity cannot be negative") ||
+    text.includes("end time cannot be before start time") ||
+    text.includes("status is invalid") ||
     text.includes("invoice not found") ||
     text.includes("invoice is already cancelled") ||
     text.includes("paid invoices cannot be cancelled") ||
@@ -196,7 +209,13 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("at least one credit note item is required") ||
     text.includes("item description is required") ||
     text.includes("credit note amount must be greater than zero") ||
-    text.includes("credit note exceeds the remaining invoice amount")
+    text.includes("credit note exceeds the remaining invoice amount") ||
+    text.includes("a lead or member is required") ||
+    text.includes("due date is required") ||
+    text.includes("convert the lead to create a member") ||
+    text.includes("converted leads cannot change status") ||
+    text.includes("referred name is required") ||
+    text.includes("referrer is required")
   ) {
     return { code: "validation", message: raw };
   }

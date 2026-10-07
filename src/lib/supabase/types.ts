@@ -2391,6 +2391,119 @@ export interface Database {
         Args: { p_refund_id: string; p_status: string };
         Returns: void;
       };
+      create_lead: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string | null;
+          p_first_name: string;
+          p_last_name: string | null;
+          p_email: string | null;
+          p_phone: string | null;
+          p_source: string | null;
+          p_status: string | null;
+          p_interest: string | null;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: string;
+      };
+      update_lead: {
+        Args: {
+          p_lead_id: string;
+          p_branch_id: string | null;
+          p_first_name: string;
+          p_last_name: string | null;
+          p_email: string | null;
+          p_phone: string | null;
+          p_source: string | null;
+          p_status: string | null;
+          p_interest: string | null;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: void;
+      };
+      set_lead_status: {
+        Args: { p_lead_id: string; p_status: string };
+        Returns: void;
+      };
+      create_follow_up: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string | null;
+          p_lead_id: string | null;
+          p_member_id: string | null;
+          p_due_at: string;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: string;
+      };
+      update_follow_up: {
+        Args: {
+          p_follow_up_id: string;
+          p_due_at: string;
+          p_status: string;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: void;
+      };
+      create_trial_membership: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_lead_id: string | null;
+          p_member_id: string | null;
+          p_starts_on: string | null;
+          p_ends_on: string | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_trial_membership: {
+        Args: {
+          p_trial_id: string;
+          p_starts_on: string | null;
+          p_ends_on: string | null;
+          p_status: string;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      create_referral: {
+        Args: {
+          p_org_id: string;
+          p_referrer_member_id: string;
+          p_referred_name: string;
+          p_referred_phone: string | null;
+          p_referred_email: string | null;
+          p_reward: string | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_referral: {
+        Args: {
+          p_referral_id: string;
+          p_referred_name: string;
+          p_referred_phone: string | null;
+          p_referred_email: string | null;
+          p_status: string;
+          p_reward: string | null;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      convert_lead_to_member: {
+        Args: {
+          p_lead_id: string;
+          p_branch_id: string | null;
+          p_last_name: string | null;
+          p_phone: string | null;
+        };
+        Returns: string;
+      };
     };
     Enums: {
       user_status: UserStatus;

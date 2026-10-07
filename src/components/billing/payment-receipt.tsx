@@ -79,6 +79,8 @@ export function PaymentReceipt({ paymentId }: { paymentId: string }) {
               {orgAddress && <p className="text-sm text-neutral-500">{orgAddress}</p>}
               {organization?.gstin && <p className="text-sm text-neutral-500">GSTIN {organization.gstin}</p>}
               {organization?.phone && <p className="text-sm text-neutral-500">{organization.phone}</p>}
+              {organization?.email && <p className="text-sm text-neutral-500">{organization.email}</p>}
+              {organization?.website && <p className="text-sm text-neutral-500">{organization.website}</p>}
             </div>
           </div>
           <div className="text-right">

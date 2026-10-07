@@ -81,6 +81,7 @@ export function MemberMembershipsPanel({ memberId }: { memberId: string }) {
                 <p className="text-xs text-neutral-500">
                   {formatDate(row.startDate)} – {formatDate(row.endDate)} · {row.branchName}
                 </p>
+                {row.notes ? <p className="mt-1 text-xs text-neutral-500">{row.notes}</p> : null}
               </div>
             </div>
             <div className="flex items-center gap-3">

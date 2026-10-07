@@ -65,6 +65,11 @@ export const ROUTE_PERMISSIONS: RoutePermissionRule[] = [
   { path: "/inventory/products/add", permission: "inventory.manage" },
   { path: "/inventory/suppliers/add", permission: "inventory.manage" },
   { path: "/inventory", permission: "inventory.view" },
+  { path: "/crm/leads/add", permission: "crm.manage" },
+  { path: "/crm/leads", permission: "crm.view" },
+  { path: "/crm/follow-ups/add", permission: "crm.manage" },
+  { path: "/crm/trials/add", permission: "crm.manage" },
+  { path: "/crm/referrals/add", permission: "crm.manage" },
   { path: "/crm", permission: "crm.view" },
   { path: "/notifications", permission: "dashboard.view" },
 ];

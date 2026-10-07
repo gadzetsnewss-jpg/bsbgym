@@ -7,17 +7,18 @@ import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { StatusBadge } from "@/components/ui/badge";
 import { useOrganization } from "@/components/auth/org-provider";
-import { fetchInvoice } from "@/lib/billing/client";
+import { fetchInvoice, fetchInvoicePayments } from "@/lib/billing/client";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { INVOICE_STATUS_LABELS } from "@/lib/billing/types";
+import { INVOICE_STATUS_LABELS, PAYMENT_METHOD_LABELS } from "@/lib/billing/types";
 import { humanStatus } from "@/components/billing/status-copy";
-import type { InvoiceRow } from "@/lib/billing/types";
+import type { InvoiceRow, PaymentRow } from "@/lib/billing/types";
 
 export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
   const { organization } = useOrganization();
   const orgId = organization?.id;
   const currency = organization?.currency ?? "INR";
   const [invoice, setInvoice] = React.useState<InvoiceRow | null>(null);
+  const [payments, setPayments] = React.useState<PaymentRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -26,14 +27,17 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
       setLoading(false);
       return;
     }
-    void fetchInvoice(orgId, invoiceId).then((result) => {
-      setLoading(false);
-      if (result.error) {
-        setError(result.error.message);
-        return;
-      }
-      setInvoice(result.data);
-    });
+    void Promise.all([fetchInvoice(orgId, invoiceId), fetchInvoicePayments(orgId, invoiceId)]).then(
+      ([invoiceResult, paymentResult]) => {
+        setLoading(false);
+        if (invoiceResult.error) {
+          setError(invoiceResult.error.message);
+          return;
+        }
+        setInvoice(invoiceResult.data);
+        setPayments(paymentResult.data ?? []);
+      },
+    );
   }, [orgId, invoiceId]);
 
   if (loading) return <LoadingState label="Loading invoice…" />;
@@ -78,6 +82,8 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
               {orgAddress && <p className="text-sm text-neutral-500">{orgAddress}</p>}
               {organization?.gstin && <p className="text-sm text-neutral-500">GSTIN {organization.gstin}</p>}
               {organization?.phone && <p className="text-sm text-neutral-500">{organization.phone}</p>}
+              {organization?.email && <p className="text-sm text-neutral-500">{organization.email}</p>}
+              {organization?.website && <p className="text-sm text-neutral-500">{organization.website}</p>}
             </div>
           </div>
           <div className="text-right">
@@ -155,6 +161,23 @@ export function InvoicePrint({ invoiceId }: { invoiceId: string }) {
             <span className="tabular-nums">{formatCurrency(invoice.balance, currency)}</span>
           </div>
         </div>
+
+        {payments.length > 0 && (
+          <div className="mt-6 text-sm">
+            <p className="mb-2 text-xs tracking-wide text-neutral-500 uppercase">Payments</p>
+            <ul className="space-y-1">
+              {payments.map((row) => (
+                <li key={row.id} className="flex justify-between gap-3">
+                  <span>
+                    {PAYMENT_METHOD_LABELS[row.method] ?? row.method}
+                    {row.reference ? ` · ${row.reference}` : ""}
+                  </span>
+                  <span className="tabular-nums">{formatCurrency(row.amount, currency)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {invoice.notes && <p className="mt-6 text-sm text-neutral-500">{invoice.notes}</p>}
         <p className="mt-8 text-xs text-neutral-400">This is a computer-generated invoice.</p>

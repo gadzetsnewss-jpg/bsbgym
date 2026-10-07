@@ -64,6 +64,19 @@ describe("toFriendlyError", () => {
       "validation",
     );
     expect(toFriendlyError({ message: "at least one payment is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "member already has an open check-in" }).message).toBe(
+      "member already has an open check-in",
+    );
+    expect(toFriendlyError({ message: "member is already booked for this class" }).message).toBe(
+      "member is already booked for this class",
+    );
+    expect(toFriendlyError({ message: "member does not have an active membership" }).code).toBe(
+      "validation",
+    );
+    expect(toFriendlyError({ message: "a lead or member is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "convert the lead to create a member" }).message).toBe(
+      "convert the lead to create a member",
+    );
   });
 
   it("falls back to database for unexpected errors", () => {

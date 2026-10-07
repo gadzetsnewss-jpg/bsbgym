@@ -60,6 +60,11 @@ export interface TableAdapterOptions<TRow> {
   lteColumnDays?: { column: string; days: number };
   /** Filter name -> timestamptz column. Value `today` restricts to that UTC date. */
   dateEqFilters?: Record<string, string>;
+  /**
+   * Filter name -> timestamptz column. Values `today` / `upcoming` / `overdue`
+   * (overdue and upcoming also restrict status to pending).
+   */
+  dueBucketFilters?: Record<string, string>;
   /** Filter name -> column that must be null when the value is `true` or `open`. */
   isNullFilters?: Record<string, string>;
 }
@@ -121,6 +126,22 @@ export function createTableAdapter<TRow>(
           const end = new Date(start);
           end.setUTCDate(end.getUTCDate() + 1);
           query = query.gte(column, start.toISOString()).lt(column, end.toISOString());
+        }
+      }
+
+      for (const [name, column] of Object.entries(opts.dueBucketFilters ?? {})) {
+        const value = params.filters[name];
+        if (!value || value === "all") continue;
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        const end = new Date(start);
+        end.setDate(end.getDate() + 1);
+        if (value === "today") {
+          query = query.gte(column, start.toISOString()).lt(column, end.toISOString());
+        } else if (value === "upcoming") {
+          query = query.gte(column, end.toISOString()).eq("status" as "id", "pending");
+        } else if (value === "overdue") {
+          query = query.lt(column, start.toISOString()).eq("status" as "id", "pending");
         }
       }
 
