@@ -16,6 +16,11 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/settings/invoice-settings")).toBe("settings.view");
     expect(requiredPermissionForPath("/settings/tax-gst")).toBe("gst.view");
     expect(requiredPermissionForPath("/settings/general")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/payments")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/membership")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/print")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/notifications")).toBe("settings.view");
   });
 
   it("applies the longest prefix rule for nested routes", () => {
@@ -33,6 +38,8 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/settings/invoice-settings")).toBe("settings.view");
     expect(requiredPermissionForPath("/settings/tax-gst")).toBe("gst.view");
     expect(requiredPermissionForPath("/settings/general")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/payments")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/print")).toBe("settings.view");
   });
 
   it("requires members.create to open the add member route", () => {

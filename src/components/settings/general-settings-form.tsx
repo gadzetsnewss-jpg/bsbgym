@@ -1,48 +1,72 @@
 "use client";
 
 import * as React from "react";
-import { z } from "zod";
 import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormField } from "@/components/ui/form-field";
 import { FormSection } from "@/components/ui/form-section";
 import { Select } from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
-import { updateOrganizationPreferences, upsertOrganizationSetting } from "@/lib/org/settings";
 import {
-  generalSettingsSchema,
-  CURRENCIES,
-  DATE_FORMATS,
-  TIMEZONES,
-} from "@/lib/validation/auth-schemas";
+  fetchOrganizationSetting,
+  updateOrganizationPreferences,
+  upsertOrganizationSetting,
+} from "@/lib/org/settings";
+import { CURRENCIES, DATE_FORMATS, TIMEZONES } from "@/lib/validation/auth-schemas";
+import { regionalSettingsSchema } from "@/lib/validation/settings-schemas";
+import {
+  DEFAULT_REGIONAL_SETTINGS,
+  SETTINGS_KEYS,
+  parseRegionalSettings,
+  type RegionalSettings,
+} from "@/lib/org/settings-catalog";
+import { SettingsActions, SettingsSavedBanner, SettingsViewOnly } from "@/components/settings/settings-form-chrome";
 
-type PrefValues = z.infer<typeof generalSettingsSchema>;
+type PrefValues = RegionalSettings;
 
 export function GeneralSettingsForm() {
   const { toast } = useToast();
   const { organization, updateOrganizationLocal, can } = useOrganization();
   const canManage = can("settings.manage") || can("organization.manage");
 
-  const [values, setValues] = React.useState<PrefValues>({
-    currency: "INR",
-    timezone: "Asia/Kolkata",
-    dateFormat: "DD/MM/YYYY",
-  });
+  const [values, setValues] = React.useState<PrefValues>(DEFAULT_REGIONAL_SETTINGS);
+  const [baseline, setBaseline] = React.useState<PrefValues>(DEFAULT_REGIONAL_SETTINGS);
   const [errors, setErrors] = React.useState<Partial<Record<keyof PrefValues, string>>>({});
+  const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  const orgId = organization?.id;
 
-  React.useEffect(() => {
-    if (!organization) return;
-    setValues({
+  const load = React.useCallback(async () => {
+    if (!orgId || !organization) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setLoadError(null);
+    const result = await fetchOrganizationSetting(orgId, SETTINGS_KEYS.regional);
+    setLoading(false);
+    if (result.error) {
+      setLoadError(result.error.message);
+      return;
+    }
+    const parsed = parseRegionalSettings(result.data, {
       currency: organization.currency,
       timezone: organization.timezone,
       dateFormat: organization.dateFormat,
     });
-  }, [organization]);
+    setValues(parsed);
+    setBaseline(parsed);
+  }, [orgId, organization]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
 
   if (!organization) {
     return (
@@ -57,7 +81,7 @@ export function GeneralSettingsForm() {
     );
   }
 
-  const setField = (field: keyof PrefValues, value: string) => {
+  const setField = <K extends keyof PrefValues>(field: K, value: PrefValues[K]) => {
     setValues((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
     setSaved(false);
@@ -67,7 +91,7 @@ export function GeneralSettingsForm() {
     event.preventDefault();
     if (submitting || !canManage) return;
 
-    const parsed = generalSettingsSchema.safeParse(values);
+    const parsed = regionalSettingsSchema.safeParse(values);
     if (!parsed.success) {
       const fieldErrors: Partial<Record<keyof PrefValues, string>> = {};
       for (const issue of parsed.error.issues) {
@@ -92,11 +116,7 @@ export function GeneralSettingsForm() {
       return;
     }
 
-    await upsertOrganizationSetting(organization.id, "regional", {
-      currency: parsed.data.currency,
-      timezone: parsed.data.timezone,
-      dateFormat: parsed.data.dateFormat,
-    });
+    await upsertOrganizationSetting(organization.id, SETTINGS_KEYS.regional, parsed.data);
     setSubmitting(false);
 
     updateOrganizationLocal({
@@ -105,9 +125,13 @@ export function GeneralSettingsForm() {
       timezone: parsed.data.timezone,
       dateFormat: parsed.data.dateFormat,
     });
+    setValues(parsed.data);
+    setBaseline(parsed.data);
     setSaved(true);
     toast({ title: "Preferences saved", description: "Regional defaults have been updated.", variant: "success" });
   };
+
+  const dirty = JSON.stringify(values) !== JSON.stringify(baseline);
 
   return (
     <div className="space-y-6">
@@ -116,23 +140,15 @@ export function GeneralSettingsForm() {
         description="Currency, timezone and date format defaults for this organization."
       />
 
-      {!canManage && (
-        <Card>
-          <CardHeader>
-            <CardTitle>View only</CardTitle>
-          </CardHeader>
-          <p className="text-sm text-neutral-500">
-            Your role can view these defaults but cannot change them.
-          </p>
-        </Card>
-      )}
+      {!canManage && <SettingsViewOnly />}
 
-      <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-2xl space-y-5">
-        {saved && (
-          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700">
-            Changes saved successfully.
-          </div>
-        )}
+      {loading ? (
+        <LoadingState label="Loading regional settings…" />
+      ) : loadError ? (
+        <ErrorState title="Could not load regional settings" description={loadError} onRetry={() => void load()} />
+      ) : (
+      <form onSubmit={handleSubmit} noValidate className="space-y-5">
+        <SettingsSavedBanner visible={saved} />
 
         <FormSection title="Regional defaults" description="Applied to invoices, reports and new branches.">
           <FormField label="Currency" required error={errors.currency}>
@@ -162,16 +178,49 @@ export function GeneralSettingsForm() {
               disabled={!canManage}
             />
           </FormField>
+          <FormField label="Currency symbol">
+            <Input
+              value={values.currencySymbol}
+              onChange={(event) => setField("currencySymbol", event.target.value)}
+              disabled={!canManage}
+              placeholder="Leave blank to use the currency code"
+            />
+          </FormField>
+          <FormField label="Time format">
+            <Select
+              value={values.timeFormat}
+              onChange={(event) => setField("timeFormat", event.target.value as PrefValues["timeFormat"])}
+              disabled={!canManage}
+              options={[
+                { value: "12h", label: "12-hour" },
+                { value: "24h", label: "24-hour" },
+              ]}
+            />
+          </FormField>
+          <FormField label="First day of week">
+            <Select
+              value={values.firstDayOfWeek}
+              onChange={(event) => setField("firstDayOfWeek", event.target.value as PrefValues["firstDayOfWeek"])}
+              disabled={!canManage}
+              options={[
+                { value: "monday", label: "Monday" },
+                { value: "sunday", label: "Sunday" },
+              ]}
+            />
+          </FormField>
         </FormSection>
 
-        {canManage && (
-          <div className="flex items-center justify-end">
-            <Button type="submit" isLoading={submitting}>
-              Save changes
-            </Button>
-          </div>
-        )}
+        <SettingsActions
+          canManage={canManage}
+          submitting={submitting}
+          dirty={dirty}
+          onReset={() => {
+            setValues(DEFAULT_REGIONAL_SETTINGS);
+            setSaved(false);
+          }}
+        />
       </form>
+      )}
     </div>
   );
 }

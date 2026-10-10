@@ -237,6 +237,15 @@ export const invoiceSettingsSchema = z.object({
   includeGstin: z.boolean(),
   footerNote: z.string().trim().max(500),
   terms: z.string().trim().max(2000),
+  dueDays: z.coerce.number().int().min(0).max(365).default(0),
+  paymentTerms: z.string().trim().max(200).default(""),
+  defaultNotes: z.string().trim().max(2000).default(""),
+  defaultPaymentMethod: z
+    .enum(["cash", "upi", "card", "netbanking", "wallet", "cheque", "bank_transfer", "other"])
+    .default("upi"),
+  roundOffBehavior: z.enum(["none", "nearest", "up", "down"]).default("none"),
+  issueDateBehavior: z.enum(["today", "blank"]).default("today"),
+  defaultBranchId: z.string().trim().max(64).default(""),
 });
 
 export const taxGstSettingsSchema = z
@@ -249,6 +258,8 @@ export const taxGstSettingsSchema = z
     reverseCharge: z.boolean(),
     /** Tax inclusive/exclusive behaviour applied to new invoices. */
     taxMode: z.enum(["exclusive", "inclusive"]).default("exclusive"),
+    roundingPolicy: z.enum(["none", "nearest", "up", "down"]).default("nearest"),
+    decimalPlaces: z.coerce.number().int().min(0).max(4).default(2),
   })
   .refine((values) => !values.gstRegistered || values.gstin.length === 15, {
     message: "GSTIN is required when the organization is GST registered",

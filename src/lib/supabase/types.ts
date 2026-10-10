@@ -1657,6 +1657,15 @@ export interface Database {
         };
         Returns: void;
       };
+      upsert_branch_setting: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_setting_key: string;
+          p_setting_value: Json;
+        };
+        Returns: void;
+      };
       user_has_permission: {
         Args: { p_org_id: string; p_permission: string };
         Returns: boolean;

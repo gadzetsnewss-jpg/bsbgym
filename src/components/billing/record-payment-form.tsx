@@ -10,8 +10,18 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { useOrganization } from "@/components/auth/org-provider";
 import { recordPayment } from "@/lib/billing/client";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/billing/types";
+import { PAYMENT_METHOD_LABELS } from "@/lib/billing/types";
 import { formatCurrency } from "@/lib/format";
+import {
+  DEFAULT_PAYMENTS_SETTINGS,
+  SETTINGS_KEYS,
+  defaultPaymentMethod,
+  enabledPaymentMethods,
+  parsePaymentsSettings,
+  paymentMethodRequiresReference,
+  type PaymentsSettings,
+} from "@/lib/org/settings-catalog";
+import { fetchOrganizationSetting } from "@/lib/org/settings";
 
 export function RecordPaymentForm({
   invoiceId,
@@ -36,6 +46,22 @@ export function RecordPaymentForm({
   const [reference, setReference] = React.useState("");
   const [notes, setNotes] = React.useState("");
   const [saving, setSaving] = React.useState(false);
+  const [paymentsSettings, setPaymentsSettings] = React.useState<PaymentsSettings>(DEFAULT_PAYMENTS_SETTINGS);
+
+  React.useEffect(() => {
+    if (!orgId) return;
+    void fetchOrganizationSetting(orgId, SETTINGS_KEYS.payments).then((result) => {
+      const parsed = parsePaymentsSettings(result.data);
+      setPaymentsSettings(parsed);
+      setMethod(defaultPaymentMethod(parsed));
+    });
+  }, [orgId]);
+
+  const methodOptions = enabledPaymentMethods(paymentsSettings).map((item) => ({
+    value: item.code,
+    label: PAYMENT_METHOD_LABELS[item.code] ?? item.code,
+  }));
+  const referenceRequired = paymentMethodRequiresReference(paymentsSettings, method);
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -47,6 +73,10 @@ export function RecordPaymentForm({
     }
     if (parsed > balance) {
       toast({ title: "Payment exceeds the outstanding balance", variant: "error" });
+      return;
+    }
+    if (referenceRequired && !reference.trim()) {
+      toast({ title: "Enter a reference for this payment method", variant: "error" });
       return;
     }
     setSaving(true);
@@ -85,10 +115,10 @@ export function RecordPaymentForm({
         <Select
           value={method}
           onChange={(event) => setMethod(event.target.value)}
-          options={PAYMENT_METHODS.map((item) => ({ value: item, label: PAYMENT_METHOD_LABELS[item] }))}
+          options={methodOptions}
         />
       </FormField>
-      <FormField label="Reference">
+      <FormField label="Reference" required={referenceRequired}>
         <Input value={reference} onChange={(event) => setReference(event.target.value)} placeholder="UPI / UTR / cheque no." />
       </FormField>
       <FormField label="Notes">

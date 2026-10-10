@@ -3,8 +3,6 @@
 import * as React from "react";
 import { z } from "zod";
 import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormField } from "@/components/ui/form-field";
 import { FormSection } from "@/components/ui/form-section";
 import { Input } from "@/components/ui/input";
@@ -16,12 +14,16 @@ import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
-import {
-  fetchOrganizationSetting,
-  settingValueAsRecord,
-  upsertOrganizationSetting,
-} from "@/lib/org/settings";
+import { fetchOrganizationSetting, upsertOrganizationSetting } from "@/lib/org/settings";
 import { invoiceSettingsSchema } from "@/lib/validation/auth-schemas";
+import {
+  DEFAULT_INVOICE_SETTINGS,
+  SETTINGS_KEYS,
+  parseInvoiceSettings,
+  paymentMethodLabel,
+} from "@/lib/org/settings-catalog";
+import { PAYMENT_METHODS } from "@/lib/billing/types";
+import { SettingsActions, SettingsSavedBanner, SettingsViewOnly } from "@/components/settings/settings-form-chrome";
 
 type InvoiceValues = z.infer<typeof invoiceSettingsSchema>;
 
@@ -32,31 +34,7 @@ const PADDING_OPTIONS = [
   { value: "6", label: "6 digits (000001)" },
 ];
 
-const DEFAULTS: InvoiceValues = {
-  prefix: "INV",
-  nextNumber: 1,
-  padding: 4,
-  includeGstin: true,
-  footerNote: "",
-  terms: "",
-};
-
-function fromRecord(record: Record<string, unknown>): InvoiceValues {
-  return {
-    prefix: typeof record.prefix === "string" && record.prefix ? record.prefix : DEFAULTS.prefix,
-    nextNumber:
-      typeof record.nextNumber === "number" && Number.isFinite(record.nextNumber)
-        ? record.nextNumber
-        : DEFAULTS.nextNumber,
-    padding:
-      typeof record.padding === "number" && Number.isFinite(record.padding)
-        ? record.padding
-        : DEFAULTS.padding,
-    includeGstin: typeof record.includeGstin === "boolean" ? record.includeGstin : DEFAULTS.includeGstin,
-    footerNote: typeof record.footerNote === "string" ? record.footerNote : "",
-    terms: typeof record.terms === "string" ? record.terms : "",
-  };
-}
+const DEFAULTS: InvoiceValues = DEFAULT_INVOICE_SETTINGS;
 
 export function InvoiceSettingsForm() {
   const { toast } = useToast();
@@ -65,6 +43,7 @@ export function InvoiceSettingsForm() {
   const orgId = organization?.id;
 
   const [values, setValues] = React.useState<InvoiceValues>(DEFAULTS);
+  const [baseline, setBaseline] = React.useState<InvoiceValues>(DEFAULTS);
   const [errors, setErrors] = React.useState<Partial<Record<keyof InvoiceValues, string>>>({});
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -78,13 +57,15 @@ export function InvoiceSettingsForm() {
     }
     setLoading(true);
     setLoadError(null);
-    const result = await fetchOrganizationSetting(orgId, "invoice");
+    const result = await fetchOrganizationSetting(orgId, SETTINGS_KEYS.invoice);
     setLoading(false);
     if (result.error) {
       setLoadError(result.error.message);
       return;
     }
-    setValues(fromRecord(settingValueAsRecord(result.data)));
+    const parsed = parseInvoiceSettings(result.data);
+    setValues(parsed);
+    setBaseline(parsed);
   }, [orgId]);
 
   React.useEffect(() => {
@@ -126,17 +107,19 @@ export function InvoiceSettingsForm() {
     }
 
     setSubmitting(true);
-    const result = await upsertOrganizationSetting(organization.id, "invoice", parsed.data);
+    const result = await upsertOrganizationSetting(organization.id, SETTINGS_KEYS.invoice, parsed.data);
     setSubmitting(false);
     if (result.error) {
       toast({ title: "Could not save", description: result.error.message, variant: "error" });
       return;
     }
     setValues(parsed.data);
+    setBaseline(parsed.data);
     setSaved(true);
     toast({ title: "Invoice settings saved", variant: "success" });
   };
 
+  const dirty = JSON.stringify(values) !== JSON.stringify(baseline);
   const sample = `${values.prefix}-${String(values.nextNumber || 1).padStart(Number(values.padding) || 4, "0")}`;
 
   return (
@@ -146,28 +129,15 @@ export function InvoiceSettingsForm() {
         description="Numbering, GSTIN display and notes used when invoices are generated."
       />
 
-      {!canManage && (
-        <Card>
-          <CardHeader>
-            <CardTitle>View only</CardTitle>
-          </CardHeader>
-          <p className="text-sm text-neutral-500">
-            Your role can view these defaults but cannot change them.
-          </p>
-        </Card>
-      )}
+      {!canManage && <SettingsViewOnly />}
 
       {loading ? (
         <LoadingState label="Loading invoice settings…" />
       ) : loadError ? (
         <ErrorState title="Could not load invoice settings" description={loadError} onRetry={() => void load()} />
       ) : (
-        <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-2xl space-y-5">
-          {saved && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700">
-              Changes saved successfully.
-            </div>
-          )}
+        <form onSubmit={handleSubmit} noValidate className="space-y-5">
+          <SettingsSavedBanner visible={saved} />
 
           <FormSection title="Numbering" description="Used as the default for new invoices.">
             <FormField label="Prefix" required error={errors.prefix}>
@@ -227,15 +197,76 @@ export function InvoiceSettingsForm() {
                 disabled={!canManage}
               />
             </FormField>
+            <FormField label="Default notes" error={errors.defaultNotes}>
+              <Textarea
+                rows={3}
+                value={values.defaultNotes ?? ""}
+                onChange={(event) => setField("defaultNotes", event.target.value)}
+                disabled={!canManage}
+              />
+            </FormField>
           </FormSection>
 
-          {canManage && (
-            <div className="flex items-center justify-end">
-              <Button type="submit" isLoading={submitting}>
-                Save changes
-              </Button>
-            </div>
-          )}
+          <FormSection title="Payment terms" description="New Invoice uses these without asking again.">
+            <FormField label="Default due days" hint="0 means due on the invoice date." error={errors.dueDays}>
+              <Input
+                type="number"
+                min={0}
+                value={values.dueDays ?? 0}
+                onChange={(event) => setField("dueDays", Number(event.target.value))}
+                disabled={!canManage}
+              />
+            </FormField>
+            <FormField label="Payment terms label" error={errors.paymentTerms}>
+              <Input
+                value={values.paymentTerms ?? ""}
+                onChange={(event) => setField("paymentTerms", event.target.value)}
+                disabled={!canManage}
+              />
+            </FormField>
+            <FormField label="Default payment method">
+              <Select
+                value={values.defaultPaymentMethod ?? "upi"}
+                onChange={(event) => setField("defaultPaymentMethod", event.target.value as InvoiceValues["defaultPaymentMethod"])}
+                disabled={!canManage}
+                options={PAYMENT_METHODS.map((item) => ({ value: item, label: paymentMethodLabel(item) }))}
+              />
+            </FormField>
+            <FormField label="Round-off policy">
+              <Select
+                value={values.roundOffBehavior ?? "none"}
+                onChange={(event) => setField("roundOffBehavior", event.target.value as InvoiceValues["roundOffBehavior"])}
+                disabled={!canManage}
+                options={[
+                  { value: "none", label: "No automatic round-off" },
+                  { value: "nearest", label: "Nearest rupee" },
+                  { value: "up", label: "Round up" },
+                  { value: "down", label: "Round down" },
+                ]}
+              />
+            </FormField>
+            <FormField label="Invoice date">
+              <Select
+                value={values.issueDateBehavior ?? "today"}
+                onChange={(event) => setField("issueDateBehavior", event.target.value as InvoiceValues["issueDateBehavior"])}
+                disabled={!canManage}
+                options={[
+                  { value: "today", label: "Today" },
+                  { value: "blank", label: "Leave blank for staff" },
+                ]}
+              />
+            </FormField>
+          </FormSection>
+
+          <SettingsActions
+            canManage={canManage}
+            submitting={submitting}
+            dirty={dirty}
+            onReset={() => {
+              setValues(DEFAULTS);
+              setSaved(false);
+            }}
+          />
         </form>
       )}
     </div>

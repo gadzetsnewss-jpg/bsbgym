@@ -16,9 +16,17 @@ import { RowActions } from "@/components/ui/row-actions";
 import { useOrganization } from "@/components/auth/org-provider";
 import { fetchOpenInvoices, fetchPayments } from "@/lib/billing/client";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from "@/lib/billing/types";
+import { PAYMENT_METHOD_LABELS } from "@/lib/billing/types";
 import { RecordPaymentForm } from "@/components/billing/record-payment-form";
 import type { InvoiceRow, PaymentRow } from "@/lib/billing/types";
+import {
+  DEFAULT_PAYMENTS_SETTINGS,
+  SETTINGS_KEYS,
+  enabledPaymentMethods,
+  parsePaymentsSettings,
+  type PaymentsSettings,
+} from "@/lib/org/settings-catalog";
+import { fetchOrganizationSetting } from "@/lib/org/settings";
 
 export function PaymentsList() {
   const { organization, can } = useOrganization();
@@ -37,6 +45,14 @@ export function PaymentsList() {
   const [open, setOpen] = React.useState(false);
   const [openInvoices, setOpenInvoices] = React.useState<InvoiceRow[]>([]);
   const [invoiceId, setInvoiceId] = React.useState("");
+  const [paymentsSettings, setPaymentsSettings] = React.useState<PaymentsSettings>(DEFAULT_PAYMENTS_SETTINGS);
+
+  React.useEffect(() => {
+    if (!orgId) return;
+    void fetchOrganizationSetting(orgId, SETTINGS_KEYS.payments).then((result) => {
+      setPaymentsSettings(parsePaymentsSettings(result.data));
+    });
+  }, [orgId]);
 
   const load = React.useCallback(async () => {
     if (!orgId) {
@@ -158,7 +174,10 @@ export function PaymentsList() {
             }}
             options={[
               { value: "all", label: "All methods" },
-              ...PAYMENT_METHODS.map((item) => ({ value: item, label: PAYMENT_METHOD_LABELS[item] })),
+              ...enabledPaymentMethods(paymentsSettings).map((item) => ({
+                value: item.code,
+                label: PAYMENT_METHOD_LABELS[item.code] ?? item.code,
+              })),
             ]}
           />
           <input

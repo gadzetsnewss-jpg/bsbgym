@@ -20,16 +20,39 @@ import { useToast } from "@/components/ui/toast";
 import { AddressFields, ContactFields, TimezoneField } from "@/components/onboarding/fields";
 import {
   createBranch,
+  fetchBranchSettings,
   fetchOrgBranchRows,
   setBranchStatus,
   updateBranch,
+  upsertBranchSetting,
   type OrgBranchRow,
 } from "@/lib/org/settings";
 import { branchFormSchema } from "@/lib/validation/auth-schemas";
+import { branchOverrideSchema } from "@/lib/validation/settings-schemas";
 import { BRANCH_STATUS_LABELS } from "@/lib/auth/permissions";
 import type { BranchStatus } from "@/lib/supabase/types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select } from "@/components/ui/select";
+import { PAPER_PROFILES, SETTINGS_KEYS, type PaperSize } from "@/lib/org/settings-catalog";
+import { parseBranchOverrideFlags } from "@/lib/org/resolved-settings";
 
 type BranchFormValues = z.infer<typeof branchFormSchema>;
+
+type OverrideForm = {
+  useInvoiceOverride: boolean;
+  prefix: string;
+  padding: number;
+  usePrintOverride: boolean;
+  paperSize: PaperSize;
+};
+
+const EMPTY_OVERRIDE: OverrideForm = {
+  useInvoiceOverride: false,
+  prefix: "",
+  padding: 4,
+  usePrintOverride: false,
+  paperSize: "a4",
+};
 
 const EMPTY_FORM: BranchFormValues = {
   name: "",
@@ -77,7 +100,9 @@ export function BranchesManager() {
   const [editing, setEditing] = React.useState<OrgBranchRow | null>(null);
   const [form, setForm] = React.useState<BranchFormValues>(EMPTY_FORM);
   const [formErrors, setFormErrors] = React.useState<Partial<Record<keyof BranchFormValues, string>>>({});
+  const [override, setOverride] = React.useState<OverrideForm>(EMPTY_OVERRIDE);
   const [saving, setSaving] = React.useState(false);
+  const canManageSettings = can("settings.manage") || can("organization.manage");
 
   const [statusBranch, setStatusBranch] = React.useState<OrgBranchRow | null>(null);
   const [statusNext, setStatusNext] = React.useState<BranchStatus>("inactive");
@@ -130,6 +155,7 @@ export function BranchesManager() {
       timezone: organization?.timezone ?? "Asia/Kolkata",
       country: organization?.country ?? "",
     });
+    setOverride(EMPTY_OVERRIDE);
     setFormErrors({});
     setEditorOpen(true);
   };
@@ -137,8 +163,21 @@ export function BranchesManager() {
   const openEdit = (branch: OrgBranchRow) => {
     setEditing(branch);
     setForm(formFromBranch(branch));
+    setOverride(EMPTY_OVERRIDE);
     setFormErrors({});
     setEditorOpen(true);
+    if (!orgId) return;
+    void fetchBranchSettings(orgId, branch.id).then((result) => {
+      if (result.error || !result.data) return;
+      const flags = parseBranchOverrideFlags(result.data);
+      setOverride({
+        useInvoiceOverride: flags.invoice.useOverride,
+        prefix: flags.invoice.prefix === "INV" ? "" : flags.invoice.prefix,
+        padding: flags.invoice.padding,
+        usePrintOverride: flags.print.useOverride,
+        paperSize: flags.print.paperSize,
+      });
+    });
   };
 
   const setField = (field: string, value: string) => {
@@ -193,9 +232,8 @@ export function BranchesManager() {
           country: payload.country,
           timezone: payload.timezone,
         });
-    setSaving(false);
-
     if (result.error) {
+      setSaving(false);
       toast({
         title: editing ? "Could not update branch" : "Could not create branch",
         description: result.error.message,
@@ -204,6 +242,39 @@ export function BranchesManager() {
       return;
     }
 
+    const createdId =
+      !editing && result.data && typeof result.data === "object" && "id" in result.data
+        ? result.data.id
+        : undefined;
+    const branchId = editing?.id ?? createdId;
+    if (branchId && canManageSettings) {
+      const overrideParsed = branchOverrideSchema.safeParse(override);
+      if (!overrideParsed.success) {
+        setSaving(false);
+        toast({ title: "Check the branch override fields", variant: "error" });
+        return;
+      }
+      const invoiceResult = await upsertBranchSetting(orgId, branchId, SETTINGS_KEYS.invoice, {
+        useOverride: overrideParsed.data.useInvoiceOverride,
+        prefix: overrideParsed.data.prefix,
+        padding: overrideParsed.data.padding,
+      });
+      const printResult = await upsertBranchSetting(orgId, branchId, SETTINGS_KEYS.print, {
+        useOverride: overrideParsed.data.usePrintOverride,
+        paperSize: overrideParsed.data.paperSize,
+      });
+      if (invoiceResult.error || printResult.error) {
+        setSaving(false);
+        toast({
+          title: "Branch saved, override not saved",
+          description: invoiceResult.error?.message ?? printResult.error?.message,
+          variant: "error",
+        });
+        return;
+      }
+    }
+
+    setSaving(false);
     toast({
       title: editing ? "Branch updated" : "Branch created",
       variant: "success",
@@ -412,6 +483,74 @@ export function BranchesManager() {
             errors={formErrors as Record<string, string | undefined>}
             onChange={setField}
           />
+          {canManageSettings ? (
+            <div className="space-y-4 rounded-lg border border-border p-4">
+              <div>
+                <p className="text-sm font-semibold text-ink">Organization default vs branch override</p>
+                <p className="mt-0.5 text-sm text-neutral-500">
+                  Leave these off to use organization Settings. Tax, currency and membership defaults stay organization-wide.
+                </p>
+              </div>
+              <label className="flex items-start gap-2 text-sm text-ink">
+                <Checkbox
+                  checked={override.useInvoiceOverride}
+                  onChange={(event) =>
+                    setOverride((prev) => ({ ...prev, useInvoiceOverride: event.target.checked }))
+                  }
+                />
+                <span>Override invoice numbering for this branch</span>
+              </label>
+              {override.useInvoiceOverride ? (
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <FormField label="Invoice prefix">
+                    <Input
+                      value={override.prefix}
+                      onChange={(event) =>
+                        setOverride((prev) => ({ ...prev, prefix: event.target.value.toUpperCase() }))
+                      }
+                    />
+                  </FormField>
+                  <FormField label="Padding">
+                    <Select
+                      value={String(override.padding)}
+                      onChange={(event) =>
+                        setOverride((prev) => ({ ...prev, padding: Number(event.target.value) }))
+                      }
+                      options={[
+                        { value: "3", label: "3 digits" },
+                        { value: "4", label: "4 digits" },
+                        { value: "5", label: "5 digits" },
+                        { value: "6", label: "6 digits" },
+                      ]}
+                    />
+                  </FormField>
+                </div>
+              ) : null}
+              <label className="flex items-start gap-2 text-sm text-ink">
+                <Checkbox
+                  checked={override.usePrintOverride}
+                  onChange={(event) =>
+                    setOverride((prev) => ({ ...prev, usePrintOverride: event.target.checked }))
+                  }
+                />
+                <span>Override paper size for this branch</span>
+              </label>
+              {override.usePrintOverride ? (
+                <FormField label="Paper size">
+                  <Select
+                    value={override.paperSize}
+                    onChange={(event) =>
+                      setOverride((prev) => ({ ...prev, paperSize: event.target.value as PaperSize }))
+                    }
+                    options={Object.values(PAPER_PROFILES).map((profile) => ({
+                      value: profile.id,
+                      label: profile.label,
+                    }))}
+                  />
+                </FormField>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </Modal>
 
