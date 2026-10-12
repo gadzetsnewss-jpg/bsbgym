@@ -15,17 +15,17 @@ function Shell({ children }: { children: React.ReactNode }) {
 
       <div
         className={cn(
-          "flex min-h-screen flex-col transition-[padding] duration-200",
+          "flex min-h-screen flex-col transition-[padding] duration-200 print:pl-0",
           collapsed ? "lg:pl-[72px]" : "lg:pl-64",
         )}
       >
         <Header />
 
-        <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8">
+        <main className="mx-auto w-full max-w-[1440px] flex-1 px-4 py-6 sm:px-6 lg:px-8 print:max-w-none print:p-0">
           {children}
         </main>
 
-        <footer className="border-t border-border px-4 py-4 sm:px-6">
+        <footer className="border-t border-border px-4 py-4 sm:px-6 print:hidden">
           <p className="text-center text-xs text-neutral-400">
             © {new Date().getFullYear()} BSB FitForge · Cloud gym management
             platform

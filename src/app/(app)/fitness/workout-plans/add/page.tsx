@@ -1,8 +1,14 @@
 import type { Metadata } from "next";
-import { OperationsForm } from "@/components/operations/operations-screens";
+import { Suspense } from "react";
+import { AddOperationsForm } from "@/components/operations/add-operations-form";
+import { LoadingState } from "@/components/ui/loading-state";
 
 export const metadata: Metadata = { title: "Add workout plan" };
 
 export default function AddWorkoutPlanPage() {
-  return <OperationsForm resource="workout_plans" mode="create" />;
+  return (
+    <Suspense fallback={<LoadingState label="Loading workout plan form…" />}>
+      <AddOperationsForm resource="workout_plans" />
+    </Suspense>
+  );
 }

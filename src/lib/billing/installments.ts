@@ -21,7 +21,7 @@ function addMonths(isoDate: string, months: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Splits `total` into `count` installments. First due at sale; last absorbs remainder. */
+/** Splits remaining balance into `count` installments. Last row absorbs paise remainder. */
 export function splitInstallments(
   total: number,
   count: number,

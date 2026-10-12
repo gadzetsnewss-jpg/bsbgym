@@ -16,6 +16,11 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/settings/invoice-settings")).toBe("settings.view");
     expect(requiredPermissionForPath("/settings/tax-gst")).toBe("gst.view");
     expect(requiredPermissionForPath("/settings/general")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/payments")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/membership")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/print")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/notifications")).toBe("settings.view");
   });
 
   it("applies the longest prefix rule for nested routes", () => {
@@ -33,6 +38,8 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/settings/invoice-settings")).toBe("settings.view");
     expect(requiredPermissionForPath("/settings/tax-gst")).toBe("gst.view");
     expect(requiredPermissionForPath("/settings/general")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/payments")).toBe("settings.view");
+    expect(requiredPermissionForPath("/settings/print")).toBe("settings.view");
   });
 
   it("requires members.create to open the add member route", () => {
@@ -78,6 +85,18 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/fitness/diet-plans/add")).toBe("fitness.manage");
     expect(requiredPermissionForPath("/fitness/measurements/add")).toBe("fitness.manage");
     expect(requiredPermissionForPath("/fitness/progress/add")).toBe("fitness.manage");
+  });
+
+  it("maps CRM write routes to crm.manage and lists to crm.view", () => {
+    expect(requiredPermissionForPath("/crm")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/leads")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/leads/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/follow-ups/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/trials/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/referrals/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/follow-ups")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/trials")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/referrals")).toBe("crm.view");
   });
 
   it("keeps profile and access-denied routes open to every member", () => {

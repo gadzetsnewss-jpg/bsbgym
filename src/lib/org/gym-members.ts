@@ -325,7 +325,40 @@ export interface MemberWorkoutPlanRow {
   goal: string | null;
   startDate: string | null;
   endDate: string | null;
+  trainerName: string | null;
   isActive: boolean;
+}
+
+export interface MemberDietPlanRow {
+  id: string;
+  name: string;
+  startDate: string | null;
+  endDate: string | null;
+  trainerName: string | null;
+  isActive: boolean;
+}
+
+export interface MemberMeasurementRow {
+  id: string;
+  measuredAt: string;
+  weightKg: number | null;
+  bodyFatPercent: number | null;
+  waistCm: number | null;
+}
+
+export interface MemberProgressRow {
+  id: string;
+  entryDate: string;
+  weightKg: number | null;
+  notes: string | null;
+}
+
+export interface MemberPtSessionRow {
+  id: string;
+  trainerName: string;
+  scheduledAt: string;
+  durationMinutes: number;
+  status: string;
 }
 
 export interface MemberClassBookingRow {
@@ -548,7 +581,7 @@ export async function fetchMemberWorkoutPlans(
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("workout_plans" as AnyTable)
-    .select("id, name, goal, start_date, end_date, is_active")
+    .select("id, name, goal, start_date, end_date, is_active, trainers(full_name, first_name, last_name)")
     .eq("organization_id", organizationId)
     .eq("member_id" as "id", memberId)
     .order("start_date" as "created_at", { ascending: false })
@@ -561,7 +594,118 @@ export async function fetchMemberWorkoutPlans(
       goal: row.goal ? String(row.goal) : null,
       startDate: row.start_date ? String(row.start_date) : null,
       endDate: row.end_date ? String(row.end_date) : null,
+      trainerName: (() => {
+        const name = embedLabel(row.trainers);
+        return name === "—" ? null : name;
+      })(),
       isActive: row.is_active !== false,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberDietPlans(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberDietPlanRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("diet_plans" as AnyTable)
+    .select("id, name, start_date, end_date, is_active, trainers(full_name, first_name, last_name)")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("start_date" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      name: String(row.name ?? "Plan"),
+      startDate: row.start_date ? String(row.start_date) : null,
+      endDate: row.end_date ? String(row.end_date) : null,
+      trainerName: (() => {
+        const name = embedLabel(row.trainers);
+        return name === "—" ? null : name;
+      })(),
+      isActive: row.is_active !== false,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberMeasurements(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberMeasurementRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("body_measurements" as AnyTable)
+    .select("id, measured_at, weight_kg, body_fat_percent, waist_cm")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("measured_at" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      measuredAt: String(row.measured_at ?? ""),
+      weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
+      bodyFatPercent: row.body_fat_percent == null ? null : Number(row.body_fat_percent),
+      waistCm: row.waist_cm == null ? null : Number(row.waist_cm),
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberProgress(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberProgressRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("progress_entries" as AnyTable)
+    .select("id, entry_date, weight_kg, notes")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("entry_date" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      entryDate: String(row.entry_date ?? ""),
+      weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
+      notes: row.notes ? String(row.notes) : null,
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberPtSessions(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberPtSessionRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("pt_sessions" as AnyTable)
+    .select("id, scheduled_at, duration_minutes, status, trainers(full_name, first_name, last_name)")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("scheduled_at" as "created_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      trainerName: embedLabel(row.trainers),
+      scheduledAt: String(row.scheduled_at ?? ""),
+      durationMinutes: Number(row.duration_minutes ?? 0),
+      status: String(row.status || "scheduled"),
     })),
     error: null,
   };

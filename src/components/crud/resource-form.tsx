@@ -72,6 +72,7 @@ export function ResourceForm<TRow>({ config, mode, id, defaults }: ResourceFormP
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [loadedOptions, setLoadedOptions] = React.useState<Record<string, SelectOption[]>>({});
+  const [createdId, setCreatedId] = React.useState<string | null>(null);
 
   const branchOptions = React.useMemo<SelectOption[]>(
     () => branches.map((branch) => ({ value: branch.id, label: `${branch.name} (${branch.code})` })),
@@ -180,11 +181,19 @@ export function ResourceForm<TRow>({ config, mode, id, defaults }: ResourceFormP
       return;
     }
 
+    const targetId = mode === "create" ? (result.data as { id: string }).id : id;
     toast({
-      title: mode === "create" ? `${config.title.replace(/s$/, "")} added` : "Changes saved",
+      title:
+        mode === "create"
+          ? (config.createSuccessTitle ?? `${config.title.replace(/s$/, "")} added`)
+          : "Changes saved",
       variant: "success",
     });
-    const targetId = mode === "create" ? (result.data as { id: string }).id : id;
+    if (mode === "create" && config.afterCreate && targetId) {
+      setCreatedId(targetId);
+      router.refresh();
+      return;
+    }
     router.push(`${config.routeBase}/${targetId}`);
     router.refresh();
   };
@@ -220,6 +229,24 @@ export function ResourceForm<TRow>({ config, mode, id, defaults }: ResourceFormP
     );
   }
 
+  if (mode === "create" && createdId && config.afterCreate) {
+    return (
+      <div className="space-y-6">
+        <PageHeader
+          title={`${config.singular.charAt(0).toUpperCase()}${config.singular.slice(1)} created`}
+          description={config.description}
+          icon={config.icon}
+          actions={
+            <ButtonLink href={config.routeBase} variant="outline">
+              Back to {config.title.toLowerCase()}
+            </ButtonLink>
+          }
+        />
+        {config.afterCreate({ id: createdId, values })}
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -245,7 +272,7 @@ export function ResourceForm<TRow>({ config, mode, id, defaults }: ResourceFormP
         />
       )}
 
-      {config.formExtras?.({ values, organizationId: orgId })}
+      {config.formExtras?.({ values, organizationId: orgId, mode, id })}
 
       {!canSubmit && (
         <div className="rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">

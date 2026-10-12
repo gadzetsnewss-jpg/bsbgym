@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { CrmList } from "@/components/crm/crm-screens";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/crm/referrals" />;
+export const metadata: Metadata = { title: "Referrals" };
+
+export default function ReferralsPage() {
+  return <CrmList resource="referrals" />;
 }

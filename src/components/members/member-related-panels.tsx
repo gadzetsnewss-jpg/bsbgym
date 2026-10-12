@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Activity, BookOpen, CalendarCheck, CreditCard, Dumbbell, UserRound } from "lucide-react";
+import { Activity, BookOpen, CalendarCheck, CreditCard, Dumbbell, HeartPulse, Ruler, Salad, UserRound } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/badge";
@@ -14,11 +14,19 @@ import {
   fetchMemberActivity,
   fetchMemberAttendance,
   fetchMemberClassBookings,
+  fetchMemberDietPlans,
+  fetchMemberMeasurements,
+  fetchMemberProgress,
+  fetchMemberPtSessions,
   fetchMemberTrainerAssignments,
   fetchMemberWorkoutPlans,
   type MemberAttendanceRow,
   type MemberAuditRow,
   type MemberClassBookingRow,
+  type MemberDietPlanRow,
+  type MemberMeasurementRow,
+  type MemberProgressRow,
+  type MemberPtSessionRow,
   type MemberTrainerAssignmentRow,
   type MemberWorkoutPlanRow,
 } from "@/lib/org/gym-members";
@@ -408,87 +416,298 @@ export function MemberClassBookingsPanel({ memberId }: { memberId: string }) {
   );
 }
 
-export function MemberFitnessPanel({ memberId }: { memberId: string }) {
+function fitnessHref(path: string, memberId: string, trainerId?: string | null) {
+  const params = new URLSearchParams({ memberId });
+  if (trainerId) params.set("trainerId", trainerId);
+  return `${path}?${params.toString()}`;
+}
+
+export function MemberFitnessPanel({
+  memberId,
+  assignedTrainerId,
+}: {
+  memberId: string;
+  assignedTrainerId?: string | null;
+}) {
   const { organization, can } = useOrganization();
   const orgId = organization?.id;
-  const canView = can("fitness.view");
-  const canManage = can("fitness.manage");
+  const canViewFitness = can("fitness.view");
+  const canManageFitness = can("fitness.manage");
+  const canViewTrainers = can("trainers.view");
+  const canAssignTrainers = can("trainers.assign");
 
-  const [rows, setRows] = React.useState<MemberWorkoutPlanRow[]>([]);
+  const [workouts, setWorkouts] = React.useState<MemberWorkoutPlanRow[]>([]);
+  const [diets, setDiets] = React.useState<MemberDietPlanRow[]>([]);
+  const [measurements, setMeasurements] = React.useState<MemberMeasurementRow[]>([]);
+  const [progress, setProgress] = React.useState<MemberProgressRow[]>([]);
+  const [ptSessions, setPtSessions] = React.useState<MemberPtSessionRow[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
 
   const load = React.useCallback(async () => {
-    if (!orgId || !canView) {
+    if (!orgId || (!canViewFitness && !canViewTrainers)) {
       setLoading(false);
       return;
     }
     setLoading(true);
     setError(null);
-    const result = await fetchMemberWorkoutPlans(orgId, memberId);
+    const [workoutResult, dietResult, measurementResult, progressResult, ptResult] =
+      await Promise.all([
+        canViewFitness
+          ? fetchMemberWorkoutPlans(orgId, memberId)
+          : Promise.resolve({ data: [] as MemberWorkoutPlanRow[], error: null }),
+        canViewFitness
+          ? fetchMemberDietPlans(orgId, memberId)
+          : Promise.resolve({ data: [] as MemberDietPlanRow[], error: null }),
+        canViewFitness
+          ? fetchMemberMeasurements(orgId, memberId)
+          : Promise.resolve({ data: [] as MemberMeasurementRow[], error: null }),
+        canViewFitness
+          ? fetchMemberProgress(orgId, memberId)
+          : Promise.resolve({ data: [] as MemberProgressRow[], error: null }),
+        canViewTrainers
+          ? fetchMemberPtSessions(orgId, memberId)
+          : Promise.resolve({ data: [] as MemberPtSessionRow[], error: null }),
+      ]);
     setLoading(false);
-    if (result.error) {
-      setError(result.error.message);
+    const firstError =
+      workoutResult.error ??
+      dietResult.error ??
+      measurementResult.error ??
+      progressResult.error ??
+      ptResult.error;
+    if (firstError) {
+      setError(firstError.message);
       return;
     }
-    setRows(result.data);
-  }, [orgId, memberId, canView]);
+    setWorkouts(workoutResult.data ?? []);
+    setDiets(dietResult.data ?? []);
+    setMeasurements(measurementResult.data ?? []);
+    setProgress(progressResult.data ?? []);
+    setPtSessions(ptResult.data ?? []);
+  }, [orgId, memberId, canViewFitness, canViewTrainers]);
 
   React.useEffect(() => {
     void load();
   }, [load]);
 
-  if (!canView) {
+  if (!canViewFitness && !canViewTrainers) {
     return (
       <EmptyState
         icon={Dumbbell}
         title="Fitness is restricted"
-        description="You do not have permission to view workout plans for this member."
+        description="You do not have permission to view fitness data for this member."
       />
     );
   }
   if (error) return <ErrorState description={error} onRetry={() => void load()} />;
-  if (loading) return <LoadingState label="Loading workout plans…" />;
-  if (rows.length === 0) {
-    return (
-      <EmptyState
-        icon={Dumbbell}
-        title="No workout plans"
-        description="Create a workout plan for this member from Fitness."
-        action={
-          canManage
-            ? { label: "Add workout plan", href: `/fitness/workout-plans/add?memberId=${memberId}` }
-            : undefined
-        }
-      />
-    );
-  }
+  if (loading) return <LoadingState label="Loading fitness…" />;
+
+  const workoutHref = fitnessHref("/fitness/workout-plans/add", memberId, assignedTrainerId);
+  const dietHref = fitnessHref("/fitness/diet-plans/add", memberId, assignedTrainerId);
+  const measurementHref = fitnessHref("/fitness/measurements/add", memberId);
+  const progressHref = fitnessHref("/fitness/progress/add", memberId);
+  const ptHref = fitnessHref("/trainers/pt-sessions/add", memberId, assignedTrainerId);
 
   return (
-    <div className="space-y-3">
-      {canManage && (
-        <div className="flex justify-end">
-          <ButtonLink href={`/fitness/workout-plans/add?memberId=${memberId}`} size="sm">
-            Add workout plan
-          </ButtonLink>
-        </div>
+    <div className="space-y-6">
+      {canViewFitness && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">Workout plans</h3>
+            {canManageFitness && (
+              <ButtonLink href={workoutHref} size="sm">
+                Add workout plan
+              </ButtonLink>
+            )}
+          </div>
+          {workouts.length === 0 ? (
+            <EmptyState
+              icon={Dumbbell}
+              title="No workout plans"
+              description="Create a workout plan for this member from Fitness."
+              action={canManageFitness ? { label: "Add workout plan", href: workoutHref } : undefined}
+            />
+          ) : (
+            workouts.map((row) => (
+              <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{row.name}</p>
+                  <p className="text-xs text-neutral-500">
+                    {row.goal ?? "No goal"}
+                    {row.trainerName ? ` · ${row.trainerName}` : ""}
+                    {" · "}
+                    {formatDate(row.startDate)} – {formatDate(row.endDate)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <StatusBadge status={row.isActive ? "Active" : "Inactive"} />
+                  <ButtonLink href={`/fitness/workout-plans/${row.id}`} variant="outline" size="sm">
+                    View
+                  </ButtonLink>
+                </div>
+              </Card>
+            ))
+          )}
+        </section>
       )}
-      {rows.map((row) => (
-        <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-ink">{row.name}</p>
-            <p className="text-xs text-neutral-500">
-              {row.goal ?? "No goal"} · {formatDate(row.startDate)} – {formatDate(row.endDate)}
-            </p>
+
+      {canViewFitness && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">Diet plans</h3>
+            {canManageFitness && (
+              <ButtonLink href={dietHref} size="sm">
+                Add diet plan
+              </ButtonLink>
+            )}
           </div>
-          <div className="flex items-center gap-3">
-            <StatusBadge status={row.isActive ? "Active" : "Inactive"} />
-            <ButtonLink href={`/fitness/workout-plans/${row.id}`} variant="outline" size="sm">
-              View
-            </ButtonLink>
+          {diets.length === 0 ? (
+            <EmptyState
+              icon={Salad}
+              title="No diet plans"
+              description="Create a diet plan for this member from Fitness."
+              action={canManageFitness ? { label: "Add diet plan", href: dietHref } : undefined}
+            />
+          ) : (
+            diets.map((row) => (
+              <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{row.name}</p>
+                  <p className="text-xs text-neutral-500">
+                    {row.trainerName ?? "No trainer"}
+                    {" · "}
+                    {formatDate(row.startDate)} – {formatDate(row.endDate)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <StatusBadge status={row.isActive ? "Active" : "Inactive"} />
+                  <ButtonLink href={`/fitness/diet-plans/${row.id}`} variant="outline" size="sm">
+                    View
+                  </ButtonLink>
+                </div>
+              </Card>
+            ))
+          )}
+        </section>
+      )}
+
+      {canViewFitness && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">Measurements</h3>
+            {canManageFitness && (
+              <ButtonLink href={measurementHref} size="sm">
+                Add measurement
+              </ButtonLink>
+            )}
           </div>
-        </Card>
-      ))}
+          {measurements.length === 0 ? (
+            <EmptyState
+              icon={Ruler}
+              title="No measurements"
+              description="Record this member's body measurements to track progress."
+              action={canManageFitness ? { label: "Add measurement", href: measurementHref } : undefined}
+            />
+          ) : (
+            measurements.map((row) => (
+              <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{formatDate(row.measuredAt)}</p>
+                  <p className="text-xs text-neutral-500">
+                    {[
+                      row.weightKg != null ? `${row.weightKg} kg` : null,
+                      row.bodyFatPercent != null ? `${row.bodyFatPercent}% body fat` : null,
+                      row.waistCm != null ? `${row.waistCm} cm waist` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "No values"}
+                  </p>
+                </div>
+                <ButtonLink href={`/fitness/measurements/${row.id}`} variant="outline" size="sm">
+                  View
+                </ButtonLink>
+              </Card>
+            ))
+          )}
+        </section>
+      )}
+
+      {canViewFitness && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">Progress</h3>
+            {canManageFitness && (
+              <ButtonLink href={progressHref} size="sm">
+                Add progress
+              </ButtonLink>
+            )}
+          </div>
+          {progress.length === 0 ? (
+            <EmptyState
+              icon={HeartPulse}
+              title="No progress entries"
+              description="Log a progress entry for this member."
+              action={canManageFitness ? { label: "Add progress", href: progressHref } : undefined}
+            />
+          ) : (
+            progress.map((row) => (
+              <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{formatDate(row.entryDate)}</p>
+                  <p className="text-xs text-neutral-500">
+                    {[row.weightKg != null ? `${row.weightKg} kg` : null, row.notes]
+                      .filter(Boolean)
+                      .join(" · ") || "No details"}
+                  </p>
+                </div>
+                <ButtonLink href={`/fitness/progress/${row.id}`} variant="outline" size="sm">
+                  View
+                </ButtonLink>
+              </Card>
+            ))
+          )}
+        </section>
+      )}
+
+      {canViewTrainers && (
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="text-sm font-semibold text-ink">PT sessions</h3>
+            {canAssignTrainers && (
+              <ButtonLink href={ptHref} size="sm">
+                Schedule PT
+              </ButtonLink>
+            )}
+          </div>
+          {ptSessions.length === 0 ? (
+            <EmptyState
+              icon={CalendarCheck}
+              title="No PT sessions"
+              description="Schedule a PT session for this member."
+              action={canAssignTrainers ? { label: "Schedule PT", href: ptHref } : undefined}
+            />
+          ) : (
+            ptSessions.map((row) => (
+              <Card key={row.id} className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-ink">{row.trainerName}</p>
+                  <p className="text-xs text-neutral-500">
+                    {formatDateTime(row.scheduledAt)}
+                    {row.durationMinutes ? ` · ${row.durationMinutes} min` : ""}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <StatusBadge status={humanLabel(row.status)} />
+                  <ButtonLink href={`/trainers/pt-sessions/${row.id}`} variant="outline" size="sm">
+                    View
+                  </ButtonLink>
+                </div>
+              </Card>
+            ))
+          )}
+        </section>
+      )}
     </div>
   );
 }

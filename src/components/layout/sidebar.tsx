@@ -157,7 +157,7 @@ export function Sidebar() {
       {/* Desktop sidebar */}
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-30 hidden flex-col bg-primary-950 transition-all duration-200 lg:flex",
+          "fixed inset-y-0 left-0 z-30 hidden flex-col bg-primary-950 transition-all duration-200 lg:flex print:hidden",
           collapsed ? "w-[72px]" : "w-64",
         )}
       >
@@ -182,7 +182,7 @@ export function Sidebar() {
 
       {/* Mobile off-canvas navigation */}
       {mobileOpen && (
-        <div className="fixed inset-0 z-50 lg:hidden">
+        <div className="fixed inset-0 z-50 lg:hidden print:hidden">
           <div
             aria-hidden="true"
             className="absolute inset-0 bg-ink/50 backdrop-blur-[2px]"

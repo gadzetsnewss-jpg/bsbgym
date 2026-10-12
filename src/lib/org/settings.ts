@@ -300,3 +300,54 @@ export async function upsertOrganizationSetting(
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return { data: undefined, error: null };
 }
+
+export interface BranchSettingRow {
+  branchId: string;
+  key: string;
+  value: Json;
+}
+
+export async function fetchBranchSettings(
+  organizationId: string,
+  branchId?: string,
+): Promise<OrgResult<BranchSettingRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  let query = supabase
+    .from("branch_settings")
+    .select("branch_id, setting_key, setting_value")
+    .eq("organization_id", organizationId)
+    .order("setting_key");
+  if (branchId) query = query.eq("branch_id", branchId);
+  const { data, error } = await query;
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+
+  return {
+    data: (data ?? []).map((row) => ({
+      branchId: row.branch_id,
+      key: row.setting_key,
+      value: row.setting_value,
+    })),
+    error: null,
+  };
+}
+
+export async function upsertBranchSetting(
+  organizationId: string,
+  branchId: string,
+  key: string,
+  value: Json,
+): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { error } = await supabase.rpc("upsert_branch_setting", {
+    p_org_id: organizationId,
+    p_branch_id: branchId,
+    p_setting_key: key,
+    p_setting_value: value,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}

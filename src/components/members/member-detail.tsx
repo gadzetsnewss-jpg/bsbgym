@@ -83,6 +83,7 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
   const canAssignMembership = can("memberships.create");
   const canCreateInvoice = can("billing.create");
   const canAssignTrainer = can("trainers.assign");
+  const canManageFitness = can("fitness.manage");
 
   const [member, setMember] = React.useState<GymMemberRow | null>(null);
   const [loading, setLoading] = React.useState(true);
@@ -162,6 +163,9 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
   }
 
   const name = displayName(member);
+  const fitnessQuery = member.assignedTrainerId
+    ? `memberId=${member.id}&trainerId=${member.assignedTrainerId}`
+    : `memberId=${member.id}`;
 
   return (
     <div className="space-y-6">
@@ -188,6 +192,16 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
             {canAssignTrainer && (
               <ButtonLink href={`/trainers/assignments/add?memberId=${member.id}`} variant="outline">
                 {member.assignedTrainerName ? "Change trainer" : "Assign trainer"}
+              </ButtonLink>
+            )}
+            {canManageFitness && (
+              <ButtonLink href={`/fitness/workout-plans/add?${fitnessQuery}`} variant="outline">
+                Add workout plan
+              </ButtonLink>
+            )}
+            {canAssignTrainer && (
+              <ButtonLink href={`/trainers/pt-sessions/add?${fitnessQuery}`} variant="outline">
+                Schedule PT
               </ButtonLink>
             )}
             {canEdit && (
@@ -342,7 +356,9 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
             assignedTrainerName={member.assignedTrainerName}
           />
         )}
-        {tab === "fitness" && <MemberFitnessPanel memberId={member.id} />}
+        {tab === "fitness" && (
+          <MemberFitnessPanel memberId={member.id} assignedTrainerId={member.assignedTrainerId} />
+        )}
         {tab === "activity" && <MemberActivityPanel memberId={member.id} />}
       </Tabs>
 

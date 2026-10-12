@@ -44,17 +44,18 @@ import {
   fetchInvoice,
   fetchMemberForInvoice,
   fetchMembershipPlansForInvoice,
-  recordPayment,
+  recordPayments,
 } from "@/lib/billing/client";
 import {
   calculateInvoiceTotals,
   calculateLineGst,
   resolveSupplyKind,
+  roundMoney,
   type TaxMode,
 } from "@/lib/billing/gst";
+import { collectPaymentRows, paymentRowsTotal } from "@/lib/billing/payments";
 import { loadMemberOptions } from "@/lib/operations/adapters";
 import { createMembership, extendMembership } from "@/lib/org/memberships";
-import { fetchOrganizationSetting, settingValueAsRecord } from "@/lib/org/settings";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -76,6 +77,14 @@ import {
 } from "@/lib/billing/plan-item";
 import type { SelectOption } from "@/components/ui/select";
 import type { InvoiceRow } from "@/lib/billing/types";
+import {
+  applyRoundOff,
+  defaultPaymentMethod,
+  emptyOrgSettingsBundle,
+  enabledPaymentMethods,
+  fetchOrgSettingsBundle,
+  type OrgSettingsBundle,
+} from "@/lib/org/resolved-settings";
 
 interface DraftItem {
   description: string;
@@ -335,6 +344,7 @@ export function NewInvoiceForm() {
   const [members, setMembers] = React.useState<SelectOption[]>([]);
   const [plans, setPlans] = React.useState<InvoicePlanOption[]>([]);
   const [gstRates, setGstRates] = React.useState<{ name: string; rate: number; hsnSac: string | null; isDefault: boolean }[]>([]);
+  const [settings, setSettings] = React.useState<OrgSettingsBundle>(emptyOrgSettingsBundle());
   const [taxModeSetting, setTaxModeSetting] = React.useState<TaxMode>("exclusive");
   const [memberId, setMemberId] = React.useState(presetMemberId);
   const [branchId, setBranchId] = React.useState(presetBranchId || currentBranchId || branches[0]?.id || "");
@@ -351,6 +361,8 @@ export function NewInvoiceForm() {
   const [membershipStart, setMembershipStart] = React.useState(todayIso());
   const [extraMonths, setExtraMonths] = React.useState("0");
   const [extraDays, setExtraDays] = React.useState("0");
+  const roundOffTouched = React.useRef(false);
+  const dueDateTouched = React.useRef(false);
   const [activateMembership, setActivateMembership] = React.useState(false);
   const [member, setMember] = React.useState<Awaited<ReturnType<typeof fetchMemberForInvoice>>["data"]>(null);
   const [saving, setSaving] = React.useState<"draft" | "finalize" | null>(null);
@@ -393,15 +405,41 @@ export function NewInvoiceForm() {
         }
       }
     });
-    void fetchOrganizationSetting(orgId, "tax_gst").then((result) => {
-      const record = settingValueAsRecord(result.data);
-      setTaxModeSetting(record.taxMode === "inclusive" ? "inclusive" : "exclusive");
-      const orgPlaceOfSupply = typeof record.placeOfSupply === "string" ? record.placeOfSupply : "";
-      if (orgPlaceOfSupply) {
-        setPlaceOfSupply((prev) => prev || orgPlaceOfSupply);
+    void fetchOrgSettingsBundle(orgId, organization?.gstin, {
+      currency: organization?.currency,
+      timezone: organization?.timezone,
+      dateFormat: organization?.dateFormat,
+    }).then((result) => {
+      if (result.error || !result.data) return;
+      const next = result.data;
+      setSettings(next);
+      setTaxModeSetting(next.tax.taxMode);
+      if (next.tax.placeOfSupply) {
+        setPlaceOfSupply((prev) => prev || next.tax.placeOfSupply);
+      }
+      if (next.invoice.issueDateBehavior === "blank") {
+        setIssueDate("");
+      }
+      if (!dueDateTouched.current && next.invoice.dueDays > 0) {
+        setDueDate(addDaysIso(todayIso(), next.invoice.dueDays));
+      }
+      if (next.invoice.defaultNotes) {
+        setNotes((prev) => prev || next.invoice.defaultNotes);
+      }
+      setPayments((prev) =>
+        prev.map((payment, index) =>
+          index === 0 && !paymentsDirty.current
+            ? { ...payment, method: defaultPaymentMethod(next.payments) }
+            : payment,
+        ),
+      );
+      setExtraMonths(String(next.membership.extraMonthsDefault));
+      setExtraDays(String(next.membership.extraDaysDefault));
+      if (next.membership.startDateBehavior === "today") {
+        setMembershipStart(todayIso());
       }
     });
-  }, [orgId]);
+  }, [orgId, organization?.gstin, organization?.currency, organization?.timezone, organization?.dateFormat]);
 
   React.useEffect(() => {
     if (!orgId || !memberId) {
@@ -449,10 +487,34 @@ export function NewInvoiceForm() {
       supply,
     }),
   );
-  const totals = calculateInvoiceTotals(computed, Number(roundOff) || 0);
+  const preRoundTotal = calculateInvoiceTotals(computed, 0).grandTotal;
+  const autoRoundOff = applyRoundOff(preRoundTotal, settings.tax.roundingPolicy);
+  const effectiveRoundOff = roundOffTouched.current ? Number(roundOff) || 0 : autoRoundOff;
+  const totals = calculateInvoiceTotals(computed, effectiveRoundOff);
+
+  React.useEffect(() => {
+    if (roundOffTouched.current) return;
+    setRoundOff(String(autoRoundOff));
+  }, [autoRoundOff]);
+
+  React.useEffect(() => {
+    if (dueDateTouched.current) return;
+    if (!issueDate) return;
+    if (settings.invoice.dueDays <= 0) {
+      setDueDate(issueDate);
+      return;
+    }
+    setDueDate(addDaysIso(issueDate, settings.invoice.dueDays));
+  }, [issueDate, settings.invoice.dueDays]);
+
+  React.useEffect(() => {
+    if (settings.membership.startDateBehavior === "invoice_date" && issueDate) {
+      setMembershipStart(issueDate);
+    }
+  }, [issueDate, settings.membership.startDateBehavior]);
 
   const paymentTotal = React.useMemo(
-    () => payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0),
+    () => roundMoney(payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0)),
     [payments],
   );
   const remaining = Math.max(totals.grandTotal - paymentTotal, 0);
@@ -542,12 +604,18 @@ export function NewInvoiceForm() {
     setPayments((prev) => prev.map((payment) => (payment.key === key ? { ...payment, ...patch } : payment)));
   };
 
+  const paymentOptions = enabledPaymentMethods(settings.payments).map((method) => ({
+    value: method.code,
+    label: PAYMENT_METHOD_LABELS[method.code] ?? method.code,
+  }));
+  const defaultMethod = defaultPaymentMethod(settings.payments);
+
   const addPayment = () => {
     paymentsDirty.current = true;
     paymentKeyRef.current += 1;
     setPayments((prev) => [
       ...prev,
-      { key: `p-${paymentKeyRef.current}`, method: "cash", amount: "", reference: "" },
+      { key: `p-${paymentKeyRef.current}`, method: defaultMethod, amount: "", reference: "" },
     ]);
   };
 
@@ -615,6 +683,13 @@ export function NewInvoiceForm() {
           if (!Number.isFinite(amount) || amount <= 0) {
             nextErrors[`payment.${index}.amount`] = "Enter an amount greater than zero.";
           }
+          if (!PAYMENT_METHODS.includes(payment.method as (typeof PAYMENT_METHODS)[number])) {
+            nextErrors[`payment.${index}.method`] = "Select a valid payment method.";
+          }
+          const requiresRef = settings.payments.methods.find((item) => item.code === payment.method)?.requireReference;
+          if (requiresRef && !payment.reference.trim()) {
+            nextErrors[`payment.${index}.reference`] = "Reference is required for this method.";
+          }
         });
       }
     }
@@ -651,7 +726,14 @@ export function NewInvoiceForm() {
       membershipId: member?.membership?.id ?? (presetMembershipId || null),
       issueDate,
       dueDate: dueDate || null,
-      notes,
+      notes: [
+        notes.trim(),
+        meaningfulExtra
+          ? `Extra validity: +${months} month(s), +${days} day(s). Membership valid until ${validUntil}.`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("\n") || null,
       placeOfSupply,
       taxMode: taxModeSetting,
       roundOff: Number(roundOff) || 0,
@@ -681,28 +763,25 @@ export function NewInvoiceForm() {
       return;
     }
 
-    const methods: string[] = [];
-    for (const payment of payments) {
-      const amount = Number(payment.amount) || 0;
-      if (amount <= 0) continue;
-      const paid = await recordPayment({
+    const paymentRows = collectPaymentRows(payments);
+    const methods = paymentRows.map((payment) => payment.method);
+
+    if (paymentRows.length > 0) {
+      const paid = await recordPayments({
         organizationId: orgId,
         invoiceId,
-        amount,
-        method: payment.method,
-        reference: payment.reference,
+        payments: paymentRows,
       });
       if (paid.error) {
         setSaving(null);
         toast({
-          title: "Invoice created, payment failed",
+          title: "Invoice created, payments failed",
           description: paid.error.message,
           variant: "error",
         });
         router.push(`/billing/invoices/${invoiceId}`);
         return;
       }
-      methods.push(payment.method);
     }
 
     let membershipWarning: string | null = null;
@@ -713,7 +792,9 @@ export function NewInvoiceForm() {
           const extended = await extendMembership(
             activeMembership.id,
             extendBy,
-            "Extra validity from invoice",
+            meaningfulExtra
+              ? `Extra validity from invoice: +${months} month(s), +${days} day(s)`
+              : "Extra validity from invoice",
           );
           if (extended.error) membershipWarning = extended.error.message;
         }
@@ -727,14 +808,16 @@ export function NewInvoiceForm() {
           endDate: validUntil,
           price: validityPlan.price,
           discount: 0,
-          notes: "Created from invoice",
+          notes: meaningfulExtra
+            ? `Created from invoice. Extra validity: +${months} month(s), +${days} day(s)`
+            : "Created from invoice",
         });
         if (created.error) membershipWarning = created.error.message;
       }
     }
 
     const invoiceResult = await fetchInvoice(orgId, invoiceId);
-    const paymentTotalRounded = Math.min(paymentTotal, totals.grandTotal);
+    const paymentTotalRounded = Math.min(paymentRowsTotal(paymentRows), totals.grandTotal);
     const invoice: InvoiceRow =
       invoiceResult.data ??
       ({
@@ -904,8 +987,15 @@ export function NewInvoiceForm() {
             <FormField label="Invoice date" required>
               <Input type="date" value={issueDate} onChange={(event) => setIssueDate(event.target.value)} />
             </FormField>
-            <FormField label="Payment due date" hint="Separate from membership expiry">
-              <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            <FormField label="Payment due date" hint="Uses Settings → Invoice due days. Separate from membership expiry.">
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={(event) => {
+                  dueDateTouched.current = true;
+                  setDueDate(event.target.value);
+                }}
+              />
             </FormField>
           </div>
         </StepCard>
@@ -1313,7 +1403,15 @@ export function NewInvoiceForm() {
               <Input value={placeOfSupply} onChange={(event) => setPlaceOfSupply(event.target.value)} />
             </FormField>
             <FormField label="Round off">
-              <Input type="number" step={0.01} value={roundOff} onChange={(event) => setRoundOff(event.target.value)} />
+              <Input
+                type="number"
+                step={0.01}
+                value={roundOff}
+                onChange={(event) => {
+                  roundOffTouched.current = true;
+                  setRoundOff(event.target.value);
+                }}
+              />
             </FormField>
           </div>
           <div className="mt-4">
@@ -1414,7 +1512,7 @@ export function NewInvoiceForm() {
                     <Select
                       value={payment.method}
                       onChange={(event) => updatePayment(payment.key, { method: event.target.value })}
-                      options={PAYMENT_METHODS.map((item) => ({ value: item, label: PAYMENT_METHOD_LABELS[item] }))}
+                      options={paymentOptions}
                     />
                   </FormField>
                 </div>
@@ -1431,10 +1529,11 @@ export function NewInvoiceForm() {
                   </FormField>
                 </div>
                 <div className="sm:col-span-3">
-                  <FormField label="Reference">
+                  <FormField label="Reference" error={fieldErrors[`payment.${index}.reference`]}>
                     <Input
                       value={payment.reference}
                       placeholder="UPI / UTR / cheque no."
+                      invalid={Boolean(fieldErrors[`payment.${index}.reference`])}
                       onChange={(event) => updatePayment(payment.key, { reference: event.target.value })}
                     />
                   </FormField>

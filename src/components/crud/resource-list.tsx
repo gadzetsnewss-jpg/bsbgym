@@ -9,7 +9,7 @@
  */
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Plus, Power, PowerOff } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
@@ -18,9 +18,10 @@ import { RowActions } from "@/components/ui/row-actions";
 import { StatusBadge } from "@/components/ui/badge";
 import { SearchBar } from "@/components/ui/search-bar";
 import { FilterBar } from "@/components/ui/filter-bar";
-import { Select } from "@/components/ui/select";
+import { Select, type SelectOption } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
 import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
@@ -32,8 +33,29 @@ export interface ResourceListProps<TRow> {
   config: ResourceConfig<TRow>;
 }
 
+function initialFilters<TRow>(
+  config: ResourceConfig<TRow>,
+  searchParams: URLSearchParams | null,
+): Record<string, string> {
+  return Object.fromEntries(
+    (config.filters ?? []).map((filter) => {
+      const fromUrl = searchParams?.get(filter.name);
+      return [filter.name, fromUrl || config.defaultFilters?.[filter.name] || "all"];
+    }),
+  );
+}
+
 export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
+  return (
+    <React.Suspense fallback={<LoadingState label={`Loading ${config.title.toLowerCase()}…`} />}>
+      <ResourceListInner config={config} />
+    </React.Suspense>
+  );
+}
+
+function ResourceListInner<TRow>({ config }: ResourceListProps<TRow>) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const { organization, branches, can } = useOrganization();
   const orgId = organization?.id;
@@ -50,17 +72,15 @@ export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
   const [total, setTotal] = React.useState(0);
   const [loading, setLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [loadedFilterOptions, setLoadedFilterOptions] = React.useState<Record<string, SelectOption[]>>(
+    {},
+  );
 
   const [search, setSearch] = React.useState("");
   const [debouncedSearch, setDebouncedSearch] = React.useState("");
   const [page, setPage] = React.useState(1);
   const [filters, setFilters] = React.useState<Record<string, string>>(() =>
-    Object.fromEntries(
-      (config.filters ?? []).map((filter) => [
-        filter.name,
-        config.defaultFilters?.[filter.name] ?? "all",
-      ]),
-    ),
+    initialFilters(config, searchParams),
   );
 
   const [pendingToggle, setPendingToggle] = React.useState<TRow | null>(null);
@@ -73,6 +93,34 @@ export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
     }, 300);
     return () => clearTimeout(timeout);
   }, [search]);
+
+  const urlFilterKey = (config.filters ?? [])
+    .map((filter) => `${filter.name}=${searchParams.get(filter.name) ?? ""}`)
+    .join("&");
+
+  React.useEffect(() => {
+    setFilters(initialFilters(config, searchParams));
+    setPage(1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [config, urlFilterKey]);
+
+  React.useEffect(() => {
+    if (!orgId) return;
+    const loaders = (config.filters ?? []).filter((filter) => filter.loadOptions);
+    if (loaders.length === 0) return;
+    let cancelled = false;
+    void Promise.all(
+      loaders.map(async (filter) => {
+        const options = await filter.loadOptions!({ organizationId: orgId });
+        return [filter.name, options] as const;
+      }),
+    ).then((entries) => {
+      if (!cancelled) setLoadedFilterOptions(Object.fromEntries(entries));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [config, orgId]);
 
   const load = React.useCallback(async () => {
     if (!orgId) {
@@ -283,7 +331,9 @@ export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
                 label: `${branch.name} (${branch.code})`,
               }));
               const options =
-                filter.optionsSource === "branches" ? branchOptions : (filter.options ?? []);
+                filter.optionsSource === "branches"
+                  ? branchOptions
+                  : (loadedFilterOptions[filter.name] ?? filter.options ?? []);
               return (
                 <Select
                   key={filter.name}

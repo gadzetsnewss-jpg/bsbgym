@@ -3,8 +3,6 @@
 import * as React from "react";
 import { z } from "zod";
 import { PageHeader } from "@/components/ui/page-header";
-import { Button } from "@/components/ui/button";
-import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { FormField } from "@/components/ui/form-field";
 import { FormSection } from "@/components/ui/form-section";
 import { Input } from "@/components/ui/input";
@@ -15,42 +13,18 @@ import { ErrorState } from "@/components/ui/error-state";
 import { LoadingState } from "@/components/ui/loading-state";
 import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
-import {
-  fetchOrganizationSetting,
-  settingValueAsRecord,
-  upsertOrganizationSetting,
-} from "@/lib/org/settings";
+import { fetchOrganizationSetting, upsertOrganizationSetting } from "@/lib/org/settings";
 import { GST_RATES, taxGstSettingsSchema } from "@/lib/validation/auth-schemas";
+import {
+  DEFAULT_TAX_GST_SETTINGS,
+  SETTINGS_KEYS,
+  parseTaxGstSettings,
+} from "@/lib/org/settings-catalog";
+import { SettingsActions, SettingsSavedBanner, SettingsViewOnly } from "@/components/settings/settings-form-chrome";
 
 type TaxValues = z.infer<typeof taxGstSettingsSchema>;
 
-const DEFAULTS: TaxValues = {
-  gstRegistered: false,
-  gstin: "",
-  defaultGstRate: "18",
-  hsnSac: "",
-  placeOfSupply: "",
-  reverseCharge: false,
-  taxMode: "exclusive",
-};
-
-function fromRecord(record: Record<string, unknown>, orgGstin: string | null): TaxValues {
-  const rate = String(record.defaultGstRate ?? DEFAULTS.defaultGstRate);
-  const allowed = GST_RATES.some((item) => item.value === rate);
-  const taxMode = record.taxMode === "inclusive" ? "inclusive" : "exclusive";
-  return {
-    gstRegistered: typeof record.gstRegistered === "boolean" ? record.gstRegistered : Boolean(orgGstin),
-    gstin:
-      typeof record.gstin === "string" && record.gstin
-        ? record.gstin
-        : orgGstin ?? "",
-    defaultGstRate: (allowed ? rate : DEFAULTS.defaultGstRate) as TaxValues["defaultGstRate"],
-    hsnSac: typeof record.hsnSac === "string" ? record.hsnSac : "",
-    placeOfSupply: typeof record.placeOfSupply === "string" ? record.placeOfSupply : "",
-    reverseCharge: typeof record.reverseCharge === "boolean" ? record.reverseCharge : false,
-    taxMode,
-  };
-}
+const DEFAULTS: TaxValues = DEFAULT_TAX_GST_SETTINGS;
 
 export function TaxGstSettingsForm() {
   const { toast } = useToast();
@@ -59,6 +33,7 @@ export function TaxGstSettingsForm() {
   const orgId = organization?.id;
 
   const [values, setValues] = React.useState<TaxValues>(DEFAULTS);
+  const [baseline, setBaseline] = React.useState<TaxValues>(DEFAULTS);
   const [errors, setErrors] = React.useState<Partial<Record<keyof TaxValues, string>>>({});
   const [loading, setLoading] = React.useState(true);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -72,13 +47,15 @@ export function TaxGstSettingsForm() {
     }
     setLoading(true);
     setLoadError(null);
-    const result = await fetchOrganizationSetting(orgId, "tax_gst");
+    const result = await fetchOrganizationSetting(orgId, SETTINGS_KEYS.taxGst);
     setLoading(false);
     if (result.error) {
       setLoadError(result.error.message);
       return;
     }
-    setValues(fromRecord(settingValueAsRecord(result.data), organization?.gstin ?? null));
+    const parsed = parseTaxGstSettings(result.data, organization?.gstin ?? null);
+    setValues(parsed);
+    setBaseline(parsed);
   }, [orgId, organization?.gstin]);
 
   React.useEffect(() => {
@@ -120,16 +97,19 @@ export function TaxGstSettingsForm() {
     }
 
     setSubmitting(true);
-    const result = await upsertOrganizationSetting(organization.id, "tax_gst", parsed.data);
+    const result = await upsertOrganizationSetting(organization.id, SETTINGS_KEYS.taxGst, parsed.data);
     setSubmitting(false);
     if (result.error) {
       toast({ title: "Could not save", description: result.error.message, variant: "error" });
       return;
     }
     setValues(parsed.data);
+    setBaseline(parsed.data);
     setSaved(true);
     toast({ title: "Tax settings saved", variant: "success" });
   };
+
+  const dirty = JSON.stringify(values) !== JSON.stringify(baseline);
 
   return (
     <div className="space-y-6">
@@ -138,28 +118,15 @@ export function TaxGstSettingsForm() {
         description="GST registration, default rate and place of supply for this organization."
       />
 
-      {!canManage && (
-        <Card>
-          <CardHeader>
-            <CardTitle>View only</CardTitle>
-          </CardHeader>
-          <p className="text-sm text-neutral-500">
-            Your role can view these defaults but cannot change them.
-          </p>
-        </Card>
-      )}
+      {!canManage && <SettingsViewOnly />}
 
       {loading ? (
         <LoadingState label="Loading tax settings…" />
       ) : loadError ? (
         <ErrorState title="Could not load tax settings" description={loadError} onRetry={() => void load()} />
       ) : (
-        <form onSubmit={handleSubmit} noValidate className="mx-auto max-w-2xl space-y-5">
-          {saved && (
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm font-medium text-emerald-700">
-              Changes saved successfully.
-            </div>
-          )}
+        <form onSubmit={handleSubmit} noValidate className="space-y-5">
+          <SettingsSavedBanner visible={saved} />
 
           <FormSection title="Registration" description="GST identity used on invoices and reports.">
             <div className="sm:col-span-2">
@@ -242,15 +209,48 @@ export function TaxGstSettingsForm() {
                 <span>Apply reverse charge by default</span>
               </label>
             </div>
+            <FormField
+              label="Rounding policy"
+              hint="Applied automatically on New Invoice. Staff can still edit the amount."
+            >
+              <Select
+                value={values.roundingPolicy ?? "nearest"}
+                onChange={(event) =>
+                  setField("roundingPolicy", event.target.value as TaxValues["roundingPolicy"])
+                }
+                disabled={!canManage}
+                options={[
+                  { value: "none", label: "No automatic round-off" },
+                  { value: "nearest", label: "Nearest rupee" },
+                  { value: "up", label: "Round up" },
+                  { value: "down", label: "Round down" },
+                ]}
+              />
+            </FormField>
+            <FormField label="Decimal places">
+              <Select
+                value={String(values.decimalPlaces ?? 2)}
+                onChange={(event) => setField("decimalPlaces", Number(event.target.value))}
+                disabled={!canManage}
+                options={[
+                  { value: "0", label: "0" },
+                  { value: "2", label: "2" },
+                  { value: "3", label: "3" },
+                  { value: "4", label: "4" },
+                ]}
+              />
+            </FormField>
           </FormSection>
 
-          {canManage && (
-            <div className="flex items-center justify-end">
-              <Button type="submit" isLoading={submitting}>
-                Save changes
-              </Button>
-            </div>
-          )}
+          <SettingsActions
+            canManage={canManage}
+            submitting={submitting}
+            dirty={dirty}
+            onReset={() => {
+              setValues(DEFAULTS);
+              setSaved(false);
+            }}
+          />
         </form>
       )}
     </div>

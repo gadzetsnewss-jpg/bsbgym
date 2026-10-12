@@ -1657,6 +1657,15 @@ export interface Database {
         };
         Returns: void;
       };
+      upsert_branch_setting: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_setting_key: string;
+          p_setting_value: Json;
+        };
+        Returns: void;
+      };
       user_has_permission: {
         Args: { p_org_id: string; p_permission: string };
         Returns: boolean;
@@ -2254,6 +2263,56 @@ export interface Database {
         };
         Returns: void;
       };
+      create_workout_plan_item: {
+        Args: {
+          p_org_id: string;
+          p_plan_id: string;
+          p_exercise_id: string | null;
+          p_day_label: string | null;
+          p_sets: number | null;
+          p_reps: string | null;
+          p_weight: string | null;
+          p_rest_seconds: number | null;
+          p_sort_order: number | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_workout_plan_item: {
+        Args: {
+          p_item_id: string;
+          p_exercise_id: string | null;
+          p_day_label: string | null;
+          p_sets: number | null;
+          p_reps: string | null;
+          p_weight: string | null;
+          p_rest_seconds: number | null;
+          p_sort_order: number | null;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      create_diet_plan_item: {
+        Args: {
+          p_org_id: string;
+          p_diet_plan_id: string;
+          p_meal: string;
+          p_description: string | null;
+          p_calories: number | null;
+          p_sort_order: number | null;
+        };
+        Returns: string;
+      };
+      update_diet_plan_item: {
+        Args: {
+          p_item_id: string;
+          p_meal: string;
+          p_description: string | null;
+          p_calories: number | null;
+          p_sort_order: number | null;
+        };
+        Returns: void;
+      };
       create_invoice: {
         Args: {
           p_org_id: string;
@@ -2290,6 +2349,14 @@ export interface Database {
           p_notes: string | null;
         };
         Returns: string;
+      };
+      record_payments: {
+        Args: {
+          p_org_id: string;
+          p_invoice_id: string;
+          p_payments: Json;
+        };
+        Returns: void;
       };
       create_installment_schedule: {
         Args: {
@@ -2332,6 +2399,119 @@ export interface Database {
       set_refund_status: {
         Args: { p_refund_id: string; p_status: string };
         Returns: void;
+      };
+      create_lead: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string | null;
+          p_first_name: string;
+          p_last_name: string | null;
+          p_email: string | null;
+          p_phone: string | null;
+          p_source: string | null;
+          p_status: string | null;
+          p_interest: string | null;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: string;
+      };
+      update_lead: {
+        Args: {
+          p_lead_id: string;
+          p_branch_id: string | null;
+          p_first_name: string;
+          p_last_name: string | null;
+          p_email: string | null;
+          p_phone: string | null;
+          p_source: string | null;
+          p_status: string | null;
+          p_interest: string | null;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: void;
+      };
+      set_lead_status: {
+        Args: { p_lead_id: string; p_status: string };
+        Returns: void;
+      };
+      create_follow_up: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string | null;
+          p_lead_id: string | null;
+          p_member_id: string | null;
+          p_due_at: string;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: string;
+      };
+      update_follow_up: {
+        Args: {
+          p_follow_up_id: string;
+          p_due_at: string;
+          p_status: string;
+          p_notes: string | null;
+          p_assigned_to: string | null;
+        };
+        Returns: void;
+      };
+      create_trial_membership: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_lead_id: string | null;
+          p_member_id: string | null;
+          p_starts_on: string | null;
+          p_ends_on: string | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_trial_membership: {
+        Args: {
+          p_trial_id: string;
+          p_starts_on: string | null;
+          p_ends_on: string | null;
+          p_status: string;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      create_referral: {
+        Args: {
+          p_org_id: string;
+          p_referrer_member_id: string;
+          p_referred_name: string;
+          p_referred_phone: string | null;
+          p_referred_email: string | null;
+          p_reward: string | null;
+          p_notes: string | null;
+        };
+        Returns: string;
+      };
+      update_referral: {
+        Args: {
+          p_referral_id: string;
+          p_referred_name: string;
+          p_referred_phone: string | null;
+          p_referred_email: string | null;
+          p_status: string;
+          p_reward: string | null;
+          p_notes: string | null;
+        };
+        Returns: void;
+      };
+      convert_lead_to_member: {
+        Args: {
+          p_lead_id: string;
+          p_branch_id: string | null;
+          p_last_name: string | null;
+          p_phone: string | null;
+        };
+        Returns: string;
       };
     };
     Enums: {
