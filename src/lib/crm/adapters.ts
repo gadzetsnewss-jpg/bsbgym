@@ -12,6 +12,7 @@ import {
   textOrNull,
   toDateTimeLocal,
 } from "@/lib/org/crud-adapter";
+import { fetchOrgMembers } from "@/lib/org/members";
 import type { ResourceValues } from "@/lib/crud/types";
 import type { SelectOption } from "@/components/ui/select";
 
@@ -65,6 +66,7 @@ export interface LeadRow {
   interest: string | null;
   notes: string | null;
   assignedTo: string | null;
+  assignedToName: string | null;
   convertedMemberId: string | null;
   convertedMemberName: string | null;
   createdAt: string;
@@ -83,6 +85,7 @@ export interface FollowUpRow {
   status: string;
   notes: string | null;
   assignedTo: string | null;
+  assignedToName: string | null;
 }
 
 export interface TrialRow {
@@ -112,6 +115,17 @@ export interface ReferralRow {
   reward: string | null;
   notes: string | null;
   createdAt: string;
+}
+
+export async function loadStaffOptions(organizationId: string): Promise<SelectOption[]> {
+  const result = await fetchOrgMembers(organizationId);
+  if (result.error || !result.data) return [];
+  return result.data
+    .filter((member) => member.status === "active")
+    .map((member) => {
+      const name = [member.firstName, member.lastName].filter(Boolean).join(" ").trim() || "Staff";
+      return { value: member.userId, label: name };
+    });
 }
 
 export async function loadLeadOptions(organizationId: string): Promise<SelectOption[]> {
@@ -144,7 +158,7 @@ function leadParams(values: ResourceValues) {
     p_status: textOrNull(values.status) ?? "new",
     p_interest: textOrNull(values.interest),
     p_notes: textOrNull(values.notes),
-    p_assigned_to: null,
+    p_assigned_to: textOrNull(values.assignedTo),
   };
 }
 
@@ -154,7 +168,8 @@ export const leadAdapter = createTableAdapter<LeadRow>({
     "id, organization_id, branch_id, first_name, last_name, full_name, email, phone, source, status, interest, notes, assigned_to, converted_member_id, created_at, branches(id, name, code), gym_members(id, full_name, first_name, last_name)",
   searchColumns: ["full_name", "phone", "email", "source", "interest"],
   order: { column: "created_at", ascending: false },
-  filterColumns: { status: "status" },
+  filterColumns: { status: "status", branchId: "branch_id", assignedTo: "assigned_to" },
+  dateBucketFilters: { created: "created_at" },
   mapRow: (row): LeadRow => {
     const firstName = asString(row.first_name);
     const lastName = asNullableString(row.last_name);
@@ -176,6 +191,7 @@ export const leadAdapter = createTableAdapter<LeadRow>({
       interest: asNullableString(row.interest),
       notes: asNullableString(row.notes),
       assignedTo: asNullableString(row.assigned_to),
+      assignedToName: null,
       convertedMemberId: asNullableString(row.converted_member_id),
       convertedMemberName: embedName(row.gym_members),
       createdAt: asString(row.created_at),
@@ -191,6 +207,7 @@ export const leadAdapter = createTableAdapter<LeadRow>({
     interest: row.interest ?? "",
     notes: row.notes ?? "",
     branchId: row.branchId ?? "",
+    assignedTo: row.assignedTo ?? "",
   }),
   rpcCreate: "create_lead",
   rpcUpdate: "update_lead",
@@ -205,7 +222,7 @@ export const followUpAdapter = createTableAdapter<FollowUpRow>({
     "id, organization_id, branch_id, lead_id, member_id, due_at, status, notes, assigned_to, branches(id, name, code), leads(id, full_name, first_name, last_name), gym_members(id, full_name, first_name, last_name)",
   searchColumns: ["notes"],
   order: { column: "due_at", ascending: true },
-  filterColumns: { status: "status" },
+  filterColumns: { status: "status", branchId: "branch_id", assignedTo: "assigned_to", leadId: "lead_id" },
   dueBucketFilters: { bucket: "due_at" },
   mapRow: (row): FollowUpRow => ({
     id: asString(row.id),
@@ -220,6 +237,7 @@ export const followUpAdapter = createTableAdapter<FollowUpRow>({
     status: asString(row.status) || "pending",
     notes: asNullableString(row.notes),
     assignedTo: asNullableString(row.assigned_to),
+    assignedToName: null,
   }),
   toFormValues: (row): ResourceValues => ({
     leadId: row.leadId ?? "",
@@ -228,6 +246,7 @@ export const followUpAdapter = createTableAdapter<FollowUpRow>({
     dueAt: toDateTimeLocal(row.dueAt),
     status: row.status,
     notes: row.notes ?? "",
+    assignedTo: row.assignedTo ?? "",
   }),
   rpcCreate: "create_follow_up",
   rpcUpdate: "update_follow_up",
@@ -238,13 +257,13 @@ export const followUpAdapter = createTableAdapter<FollowUpRow>({
     p_member_id: textOrNull(values.memberId),
     p_due_at: datetimeOrNull(values.dueAt),
     p_notes: textOrNull(values.notes),
-    p_assigned_to: null,
+    p_assigned_to: textOrNull(values.assignedTo),
   }),
   buildUpdateParams: (values) => ({
     p_due_at: datetimeOrNull(values.dueAt),
     p_status: textOrNull(values.status) ?? "pending",
     p_notes: textOrNull(values.notes),
-    p_assigned_to: null,
+    p_assigned_to: textOrNull(values.assignedTo),
   }),
 });
 
@@ -254,7 +273,7 @@ export const trialAdapter = createTableAdapter<TrialRow>({
     "id, organization_id, branch_id, lead_id, member_id, starts_on, ends_on, status, notes, branches(id, name, code), leads(id, full_name, first_name, last_name), gym_members(id, full_name, first_name, last_name)",
   searchColumns: ["notes"],
   order: { column: "starts_on", ascending: false },
-  filterColumns: { status: "status" },
+  filterColumns: { status: "status", branchId: "branch_id", leadId: "lead_id" },
   mapRow: (row): TrialRow => ({
     id: asString(row.id),
     organizationId: asString(row.organization_id),

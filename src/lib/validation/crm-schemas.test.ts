@@ -22,6 +22,7 @@ describe("leadFormSchema", () => {
     interest: "",
     notes: "",
     branchId: "",
+    assignedTo: "",
   };
 
   it("accepts a minimal lead", () => {
@@ -46,6 +47,7 @@ describe("followUpFormSchema", () => {
       dueAt: "",
       status: "pending",
       notes: "",
+      assignedTo: "",
     });
     expect(missing.success).toBe(false);
   });
@@ -58,6 +60,7 @@ describe("followUpFormSchema", () => {
       dueAt: "2026-10-08T10:00",
       status: "pending",
       notes: "",
+      assignedTo: "",
     });
     expect(result.success).toBe(true);
   });

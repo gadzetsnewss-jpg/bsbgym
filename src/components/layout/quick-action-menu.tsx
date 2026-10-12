@@ -28,7 +28,7 @@ const QUICK_ACTION_PERMISSIONS: Record<string, string> = {
   "qa-2": "billing.create",
   "qa-3": "attendance.view",
   "qa-4": "payments.create",
-  "qa-5": "crm.view",
+  "qa-5": "crm.manage",
 };
 
 export function QuickActionMenu({ className }: { className?: string }) {

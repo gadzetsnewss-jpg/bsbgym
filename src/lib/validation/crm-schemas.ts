@@ -65,6 +65,7 @@ export const leadFormSchema = z.object({
   interest: optionalText,
   notes: optionalLongText,
   branchId: z.string().optional().or(z.literal("")),
+  assignedTo: z.string().optional().or(z.literal("")),
 });
 
 export const followUpFormSchema = z
@@ -75,6 +76,7 @@ export const followUpFormSchema = z
     dueAt: z.string().trim().min(1, "Due date is required"),
     status: z.enum(["pending", "done", "cancelled"]).optional().or(z.literal("")),
     notes: optionalLongText,
+    assignedTo: z.string().optional().or(z.literal("")),
   })
   .refine((data) => Boolean(data.leadId) || Boolean(data.memberId), {
     message: "Select a lead or a member",

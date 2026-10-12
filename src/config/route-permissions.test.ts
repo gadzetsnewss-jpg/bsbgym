@@ -87,6 +87,18 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/fitness/progress/add")).toBe("fitness.manage");
   });
 
+  it("maps CRM write routes to crm.manage and lists to crm.view", () => {
+    expect(requiredPermissionForPath("/crm")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/leads")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/leads/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/follow-ups/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/trials/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/referrals/add")).toBe("crm.manage");
+    expect(requiredPermissionForPath("/crm/follow-ups")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/trials")).toBe("crm.view");
+    expect(requiredPermissionForPath("/crm/referrals")).toBe("crm.view");
+  });
+
   it("keeps profile and access-denied routes open to every member", () => {
     expect(requiredPermissionForPath("/settings/profile")).toBeNull();
     expect(requiredPermissionForPath("/access-denied")).toBeNull();

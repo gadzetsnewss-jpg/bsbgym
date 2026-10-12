@@ -62,9 +62,15 @@ export interface TableAdapterOptions<TRow> {
   dateEqFilters?: Record<string, string>;
   /**
    * Filter name -> timestamptz column. Values `today` / `upcoming` / `overdue`
-   * (overdue and upcoming also restrict status to pending).
+   * (overdue and upcoming also restrict status to pending). `completed` keeps
+   * status `done` without a date window.
    */
   dueBucketFilters?: Record<string, string>;
+  /**
+   * Filter name -> timestamptz/date column. Values `today` / `this_week` /
+   * `this_month` (local calendar, no status restriction).
+   */
+  dateBucketFilters?: Record<string, string>;
   /** Filter name -> column that must be null when the value is `true` or `open`. */
   isNullFilters?: Record<string, string>;
 }
@@ -142,6 +148,28 @@ export function createTableAdapter<TRow>(
           query = query.gte(column, end.toISOString()).eq("status" as "id", "pending");
         } else if (value === "overdue") {
           query = query.lt(column, start.toISOString()).eq("status" as "id", "pending");
+        } else if (value === "completed") {
+          query = query.eq("status" as "id", "done");
+        }
+      }
+
+      for (const [name, column] of Object.entries(opts.dateBucketFilters ?? {})) {
+        const value = params.filters[name];
+        if (!value || value === "all") continue;
+        const start = new Date();
+        start.setHours(0, 0, 0, 0);
+        if (value === "today") {
+          const end = new Date(start);
+          end.setDate(end.getDate() + 1);
+          query = query.gte(column, start.toISOString()).lt(column, end.toISOString());
+        } else if (value === "this_week") {
+          const weekday = start.getDay();
+          const mondayOffset = weekday === 0 ? 6 : weekday - 1;
+          start.setDate(start.getDate() - mondayOffset);
+          query = query.gte(column, start.toISOString());
+        } else if (value === "this_month") {
+          start.setDate(1);
+          query = query.gte(column, start.toISOString());
         }
       }
 

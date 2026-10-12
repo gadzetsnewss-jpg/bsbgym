@@ -104,6 +104,8 @@ export interface ResourceFilter {
   options?: readonly SelectOption[];
   /** Dynamic options from org context (e.g. branches). */
   optionsSource?: FieldOptionsSource;
+  /** Async option loader (e.g. assigned staff). */
+  loadOptions?: (context: { organizationId: string }) => Promise<SelectOption[]>;
 }
 
 /** Derives the active/inactive badge + state for a row. */
@@ -174,11 +176,20 @@ export interface ResourceConfig<TRow> {
   /** Optional billing-handoff notice rendered above the form. */
   billingHandoff?: "assign" | "renew" | "upgrade" | "freeze" | "extend";
   /** Extra notice rendered above the form fields, driven by current values. */
-  formExtras?: (ctx: { values: ResourceValues; organizationId: string }) => React.ReactNode;
+  formExtras?: (ctx: {
+    values: ResourceValues;
+    organizationId: string;
+    mode: "create" | "edit";
+    id?: string;
+  }) => React.ReactNode;
   /** Extra panels rendered on the detail page after the field cards. */
   detailExtras?: (row: TRow) => React.ReactNode;
   /** Label for the create button (default `Add {singular}`). */
   createLabel?: string;
   /** Extra kebab-menu items for a list row. */
   extraRowActions?: (row: TRow) => DropdownItem[];
+  /** Override the create-success toast title. */
+  createSuccessTitle?: string;
+  /** When set, create stays on the form and renders these next steps. */
+  afterCreate?: (ctx: { id: string; values: ResourceValues }) => React.ReactNode;
 }

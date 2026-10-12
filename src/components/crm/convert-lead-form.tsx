@@ -24,6 +24,8 @@ import { PERMISSIONS } from "@/lib/auth/permissions";
 import { leadAdapter, type LeadRow } from "@/lib/crm/adapters";
 import { convertLeadToMember } from "@/lib/crm/client";
 import { convertLeadFormSchema } from "@/lib/validation/crm-schemas";
+import { fetchOrganizationSetting } from "@/lib/org/settings";
+import { SETTINGS_KEYS, parseMembershipSettings } from "@/lib/org/settings-catalog";
 
 export function ConvertLeadForm({ leadId }: { leadId: string }) {
   const router = useRouter();
@@ -44,6 +46,7 @@ export function ConvertLeadForm({ leadId }: { leadId: string }) {
   const [errors, setErrors] = React.useState<Record<string, string>>({});
   const [submitting, setSubmitting] = React.useState(false);
   const [memberId, setMemberId] = React.useState<string | null>(null);
+  const [assignTrainerOnConvert, setAssignTrainerOnConvert] = React.useState(false);
 
   React.useEffect(() => {
     if (!orgId) return;
@@ -60,6 +63,10 @@ export function ConvertLeadForm({ leadId }: { leadId: string }) {
       setLastName(result.data.lastName ?? "");
       setPhone(result.data.phone ?? "");
       if (result.data.convertedMemberId) setMemberId(result.data.convertedMemberId);
+    });
+    void fetchOrganizationSetting(orgId, SETTINGS_KEYS.membership).then((result) => {
+      if (cancelled || result.error) return;
+      setAssignTrainerOnConvert(parseMembershipSettings(result.data).trainerAssignOnConvert);
     });
     return () => {
       cancelled = true;
@@ -101,7 +108,7 @@ export function ConvertLeadForm({ leadId }: { leadId: string }) {
       return;
     }
     setMemberId(result.data.id);
-    toast({ title: "Lead converted to member", variant: "success" });
+    toast({ title: "Lead converted successfully", variant: "success" });
     router.refresh();
   };
 
@@ -120,9 +127,10 @@ export function ConvertLeadForm({ leadId }: { leadId: string }) {
     return <ErrorState description={loadError ?? "That item could not be found."} />;
   }
 
+  const branchQuery = branchId ? `&branchId=${encodeURIComponent(branchId)}` : "";
   const viewHref = memberId ? `/members/${memberId}` : "";
-  const membershipHref = memberId ? `/memberships/active/add?memberId=${memberId}` : "";
-  const invoiceHref = memberId ? `/billing/new-invoice?memberId=${memberId}` : "";
+  const membershipHref = memberId ? `/memberships/active/add?memberId=${memberId}${branchQuery}` : "";
+  const invoiceHref = memberId ? `/billing/new-invoice?memberId=${memberId}${branchQuery}` : "";
   const trainerHref = memberId ? `/trainers/assignments/add?memberId=${memberId}` : "";
 
   return (
@@ -139,10 +147,10 @@ export function ConvertLeadForm({ leadId }: { leadId: string }) {
 
       {memberId ? (
         <Card className="space-y-4">
-          <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
-            <CheckCircle2 aria-hidden="true" className="size-5" />
-            {lead.fullName} is now a member. Continue without searching again.
-          </p>
+            <p className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+              <CheckCircle2 aria-hidden="true" className="size-5" />
+              Lead converted successfully. {lead.fullName} is now a member. Continue without searching again.
+            </p>
           <div className="flex flex-wrap gap-2">
             <ButtonLink href={viewHref} size="sm">
               <Users aria-hidden="true" className="size-4" />
@@ -161,7 +169,7 @@ export function ConvertLeadForm({ leadId }: { leadId: string }) {
               </ButtonLink>
             )}
             {canAssignTrainer && (
-              <ButtonLink href={trainerHref} variant="outline" size="sm">
+              <ButtonLink href={trainerHref} variant={assignTrainerOnConvert ? "primary" : "outline"} size="sm">
                 <UserPlus aria-hidden="true" className="size-4" />
                 Assign trainer
               </ButtonLink>

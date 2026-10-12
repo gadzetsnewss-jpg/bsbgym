@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { FlaskConical, PhoneCall, Share2, Target } from "lucide-react";
+import { FlaskConical, PhoneCall, Plus, Share2, Target, UserPlus } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -20,6 +20,7 @@ const emptyCounts: CrmPipelineCounts = {
   lost: 0,
   followUpsToday: 0,
   followUpsOverdue: 0,
+  trialsUpcoming: 0,
   trialsActive: 0,
   referralsPending: 0,
 };
@@ -58,9 +59,12 @@ export function CrmDashboard() {
         description="Lead to member in one path: follow up, trial, convert, then membership and billing."
         icon={Target}
         actions={
-          canManage ? (
-            <ButtonLink href="/crm/leads/add">Add lead</ButtonLink>
-          ) : undefined
+          <div className="flex flex-wrap gap-2">
+            <ButtonLink href="/crm/leads?status=new" variant="outline">
+              View pipeline
+            </ButtonLink>
+            {canManage ? <ButtonLink href="/crm/leads/add">Add lead</ButtonLink> : null}
+          </div>
         }
       />
 
@@ -71,34 +75,57 @@ export function CrmDashboard() {
       ) : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-            <PipelineStat label="New" value={data.newLeads} href="/crm/leads?status=new" />
-            <PipelineStat label="Contacted" value={data.contacted} href="/crm/leads" />
-            <PipelineStat label="Qualified" value={data.qualified} href="/crm/leads" />
-            <PipelineStat label="Trial" value={data.trial} href="/crm/trials" />
-            <PipelineStat label="Converted" value={data.converted} href="/crm/leads" />
-            <PipelineStat label="Lost" value={data.lost} href="/crm/leads" />
+            <PipelineStat label="New leads" value={data.newLeads} href="/crm/leads?status=new" />
+            <PipelineStat label="Follow-ups today" value={data.followUpsToday} href="/crm/follow-ups?bucket=today" />
+            <PipelineStat label="Overdue follow-ups" value={data.followUpsOverdue} href="/crm/follow-ups?bucket=overdue" />
+            <PipelineStat label="Upcoming trials" value={data.trialsUpcoming} href="/crm/trials?status=scheduled" />
+            <PipelineStat label="Converted" value={data.converted} href="/crm/leads?status=converted" />
+            <PipelineStat label="Lost" value={data.lost} href="/crm/leads?status=lost" />
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {canManage ? (
+              <ButtonLink href="/crm/leads/add" size="sm">
+                <Plus aria-hidden="true" className="size-4" />
+                Add lead
+              </ButtonLink>
+            ) : null}
+            <ButtonLink href="/crm/follow-ups?bucket=today" variant="outline" size="sm">
+              <PhoneCall aria-hidden="true" className="size-4" />
+              Today&apos;s follow-ups
+            </ButtonLink>
+            {canManage ? (
+              <ButtonLink href="/crm/trials/add" variant="outline" size="sm">
+                <FlaskConical aria-hidden="true" className="size-4" />
+                Schedule trial
+              </ButtonLink>
+            ) : null}
+            <ButtonLink href="/crm/leads" variant="outline" size="sm">
+              <Target aria-hidden="true" className="size-4" />
+              View pipeline
+            </ButtonLink>
           </div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <ShortcutCard
-              title="Follow-ups today"
-              value={data.followUpsToday}
-              hint={data.followUpsOverdue > 0 ? `${data.followUpsOverdue} overdue` : "None overdue"}
-              href="/crm/follow-ups"
-              icon={PhoneCall}
+              title="Contacted / qualified"
+              value={data.contacted + data.qualified}
+              hint={`${data.contacted} contacted, ${data.qualified} qualified`}
+              href="/crm/leads?status=contacted"
+              icon={UserPlus}
             />
             <ShortcutCard
               title="Active trials"
               value={data.trialsActive}
-              hint="Convert a successful trial to a member"
-              href="/crm/trials"
+              hint="A trial visit does not create a membership"
+              href="/crm/trials?status=active"
               icon={FlaskConical}
             />
             <ShortcutCard
               title="Pending referrals"
               value={data.referralsPending}
               hint="Track who referred a prospect"
-              href="/crm/referrals"
+              href="/crm/referrals?status=pending"
               icon={Share2}
             />
           </div>

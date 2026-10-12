@@ -8,14 +8,17 @@
 import { createElement } from "react";
 import { FlaskConical, PhoneCall, Share2, Target } from "lucide-react";
 import { StatusBadge } from "@/components/ui/badge";
+import { ButtonLink } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import { PERMISSIONS } from "@/lib/auth/permissions";
 import { fromZod } from "@/lib/crud/validate";
-import type { ResourceConfig } from "@/lib/crud/types";
+import type { ResourceConfig, ResourceValues } from "@/lib/crud/types";
 import { loadMemberOptions } from "@/lib/operations/adapters";
 import {
   followUpAdapter,
   leadAdapter,
   loadLeadOptions,
+  loadStaffOptions,
   referralAdapter,
   trialAdapter,
   type FollowUpRow,
@@ -35,6 +38,7 @@ import {
   trialFormSchema,
 } from "@/lib/validation/crm-schemas";
 import { leadDetailExtras } from "@/components/crm/lead-detail-extras";
+import { LeadDuplicateWarning } from "@/components/crm/lead-duplicate-warning";
 
 const crmPermissions = {
   view: PERMISSIONS.crm.view,
@@ -52,6 +56,10 @@ export const leadResource: ResourceConfig<LeadRow> = {
   permissions: crmPermissions,
   searchPlaceholder: "Search leads by name, phone, email or source",
   emptyDescription: "Add a lead to start the sales follow-up.",
+  createSuccessTitle: "Lead created successfully",
+  afterCreate: ({ id, values }) => createElement(LeadCreatedNextSteps, { id, values }),
+  formExtras: ({ values, organizationId, id }) =>
+    createElement(LeadDuplicateWarning, { values, organizationId, excludeId: id }),
   filters: [
     {
       name: "status",
@@ -59,14 +67,35 @@ export const leadResource: ResourceConfig<LeadRow> = {
       allLabel: "All statuses",
       options: LEAD_STATUSES,
     },
+    {
+      name: "branchId",
+      label: "Branch",
+      allLabel: "All branches",
+      optionsSource: "branches",
+    },
+    {
+      name: "assignedTo",
+      label: "Assigned staff",
+      allLabel: "All staff",
+      loadOptions: ({ organizationId }) => loadStaffOptions(organizationId),
+    },
+    {
+      name: "created",
+      label: "Added",
+      allLabel: "Any date",
+      options: [
+        { value: "today", label: "Today" },
+        { value: "this_week", label: "This week" },
+        { value: "this_month", label: "This month" },
+      ],
+    },
   ],
   columns: [
     { id: "name", header: "Name", accessor: (row) => row.fullName },
     { id: "phone", header: "Phone", accessor: (row) => row.phone, format: "muted" },
     { id: "source", header: "Source", accessor: (row) => row.source, format: "muted" },
-    { id: "interest", header: "Interest", accessor: (row) => row.interest, format: "muted" },
-    { id: "branch", header: "Branch", accessor: (row) => row.branchName, format: "muted" },
     { id: "status", header: "Status", cell: (row) => createElement(StatusBadge, { status: row.status }) },
+    { id: "branch", header: "Branch", accessor: (row) => row.branchName, format: "muted" },
   ],
   fields: [
     {
@@ -93,6 +122,13 @@ export const leadResource: ResourceConfig<LeadRow> = {
           optionsSource: "branches",
           placeholder: "Select a branch",
         },
+        {
+          name: "assignedTo",
+          label: "Assigned staff",
+          type: "select",
+          placeholder: "Unassigned",
+          loadOptions: ({ organizationId }) => loadStaffOptions(organizationId),
+        },
         { name: "notes", label: "Notes", type: "textarea", rows: 4, span: 2 },
       ],
     },
@@ -101,8 +137,8 @@ export const leadResource: ResourceConfig<LeadRow> = {
   adapter: leadAdapter,
   displayName: (row) => row.fullName,
   extraRowActions: (row) => [
-    { label: "Schedule follow-up", href: `/crm/follow-ups/add?leadId=${row.id}` },
-    { label: "Start trial", href: `/crm/trials/add?leadId=${row.id}` },
+    { label: "Add follow-up", href: `/crm/follow-ups/add?leadId=${row.id}${row.branchId ? `&branchId=${row.branchId}` : ""}` },
+    { label: "Schedule trial", href: `/crm/trials/add?leadId=${row.id}${row.branchId ? `&branchId=${row.branchId}` : ""}` },
     ...(row.status === "converted" && row.convertedMemberId
       ? [{ label: "View member", href: `/members/${row.convertedMemberId}` }]
       : [{ label: "Convert to member", href: `/crm/leads/${row.id}/convert` }]),
@@ -120,6 +156,8 @@ export const followUpResource: ResourceConfig<FollowUpRow> = {
   permissions: crmPermissions,
   searchPlaceholder: "Search follow-up notes",
   emptyDescription: "Schedule a follow-up from a lead or member.",
+  createSuccessTitle: "Follow-up scheduled",
+  afterCreate: ({ id, values }) => createElement(FollowUpCreatedNextSteps, { id, values }),
   defaultFilters: { bucket: "today" },
   filters: [
     {
@@ -130,6 +168,7 @@ export const followUpResource: ResourceConfig<FollowUpRow> = {
         { value: "today", label: "Today" },
         { value: "upcoming", label: "Upcoming" },
         { value: "overdue", label: "Overdue" },
+        { value: "completed", label: "Completed" },
       ],
     },
     {
@@ -137,6 +176,12 @@ export const followUpResource: ResourceConfig<FollowUpRow> = {
       label: "Status",
       allLabel: "All statuses",
       options: FOLLOW_UP_STATUSES,
+    },
+    {
+      name: "branchId",
+      label: "Branch",
+      allLabel: "All branches",
+      optionsSource: "branches",
     },
   ],
   columns: [
@@ -184,6 +229,13 @@ export const followUpResource: ResourceConfig<FollowUpRow> = {
           options: FOLLOW_UP_STATUSES,
           defaultValue: "pending",
         },
+        {
+          name: "assignedTo",
+          label: "Assigned staff",
+          type: "select",
+          placeholder: "Unassigned",
+          loadOptions: ({ organizationId }) => loadStaffOptions(organizationId),
+        },
         { name: "notes", label: "Notes", type: "textarea", rows: 4, span: 2 },
       ],
     },
@@ -197,7 +249,23 @@ export const followUpResource: ResourceConfig<FollowUpRow> = {
     ...(row.status === "pending"
       ? [{ label: "Complete / reschedule", href: `/crm/follow-ups/${row.id}/edit` }]
       : []),
+    ...(row.leadId ? [{ label: "Schedule trial", href: `/crm/trials/add?leadId=${row.leadId}` }] : []),
   ],
+  detailExtras: (row) =>
+    createElement(RelatedNextSteps, {
+      title: "Next step",
+      description: "Open the person or continue the pipeline without searching again.",
+      actions: [
+        ...(row.leadId ? [{ label: "View lead", href: `/crm/leads/${row.leadId}` }] : []),
+        ...(row.memberId ? [{ label: "View member", href: `/members/${row.memberId}` }] : []),
+        ...(row.status === "pending"
+          ? [{ label: "Complete / reschedule", href: `/crm/follow-ups/${row.id}/edit` }]
+          : []),
+        ...(row.leadId
+          ? [{ label: "Schedule trial", href: `/crm/trials/add?leadId=${row.leadId}` }]
+          : []),
+      ],
+    }),
 };
 
 export const trialResource: ResourceConfig<TrialRow> = {
@@ -210,12 +278,20 @@ export const trialResource: ResourceConfig<TrialRow> = {
   permissions: crmPermissions,
   searchPlaceholder: "Search trial notes",
   emptyDescription: "Start a trial from a lead to track the visit dates.",
+  createSuccessTitle: "Trial scheduled",
+  afterCreate: ({ id, values }) => createElement(TrialCreatedNextSteps, { id, values }),
   filters: [
     {
       name: "status",
       label: "Status",
       allLabel: "All statuses",
       options: TRIAL_STATUSES,
+    },
+    {
+      name: "branchId",
+      label: "Branch",
+      allLabel: "All branches",
+      optionsSource: "branches",
     },
   ],
   columns: [
@@ -275,10 +351,26 @@ export const trialResource: ResourceConfig<TrialRow> = {
   extraRowActions: (row) => [
     ...(row.leadId ? [{ label: "View lead", href: `/crm/leads/${row.leadId}` }] : []),
     ...(row.memberId ? [{ label: "View member", href: `/members/${row.memberId}` }] : []),
+    ...(row.leadId ? [{ label: "Add follow-up", href: `/crm/follow-ups/add?leadId=${row.leadId}` }] : []),
     ...(row.leadId && !row.memberId
       ? [{ label: "Convert to member", href: `/crm/leads/${row.leadId}/convert` }]
       : []),
   ],
+  detailExtras: (row) =>
+    createElement(RelatedNextSteps, {
+      title: "Next step",
+      description: "A trial visit does not create a membership. Follow up or convert when ready.",
+      actions: [
+        ...(row.leadId ? [{ label: "View lead", href: `/crm/leads/${row.leadId}` }] : []),
+        ...(row.memberId ? [{ label: "View member", href: `/members/${row.memberId}` }] : []),
+        ...(row.leadId
+          ? [{ label: "Add follow-up", href: `/crm/follow-ups/add?leadId=${row.leadId}` }]
+          : []),
+        ...(row.leadId && !row.memberId
+          ? [{ label: "Convert to member", href: `/crm/leads/${row.leadId}/convert` }]
+          : []),
+      ],
+    }),
 };
 
 export const referralResource: ResourceConfig<ReferralRow> = {
@@ -304,6 +396,7 @@ export const referralResource: ResourceConfig<ReferralRow> = {
     { id: "referred", header: "Referred", accessor: (row) => row.referredName },
     { id: "phone", header: "Phone", accessor: (row) => row.referredPhone, format: "muted" },
     { id: "status", header: "Status", cell: (row) => createElement(StatusBadge, { status: row.status }) },
+    { id: "created", header: "Date", accessor: (row) => row.createdAt, format: "date" },
     { id: "reward", header: "Reward note", accessor: (row) => row.reward, format: "muted" },
   ],
   fields: [
@@ -339,9 +432,148 @@ export const referralResource: ResourceConfig<ReferralRow> = {
   displayName: (row) => row.referredName,
   extraRowActions: (row) => [
     { label: "View referrer", href: `/members/${row.referrerMemberId}` },
-    { label: "Add as lead", href: `/crm/leads/add?name=${encodeURIComponent(row.referredName)}` },
+    {
+      label: "Add as lead",
+      href: `/crm/leads/add?name=${encodeURIComponent(row.referredName)}${
+        row.referredPhone ? `&phone=${encodeURIComponent(row.referredPhone)}` : ""
+      }`,
+    },
   ],
 };
+
+function RelatedNextSteps({
+  title,
+  description,
+  actions,
+}: {
+  title: string;
+  description: string;
+  actions: { label: string; href: string }[];
+}) {
+  if (actions.length === 0) return null;
+  return createElement(
+    Card,
+    { className: "space-y-4" },
+    createElement("p", { className: "text-sm font-semibold text-ink" }, title),
+    createElement("p", { className: "text-sm text-neutral-500" }, description),
+    createElement(
+      "div",
+      { className: "flex flex-wrap gap-2" },
+      ...actions.map((action) =>
+        createElement(ButtonLink, { href: action.href, variant: "outline", size: "sm" }, action.label),
+      ),
+    ),
+  );
+}
+
+function branchQueryOf(values: ResourceValues): string {
+  const branchId = typeof values.branchId === "string" ? values.branchId : "";
+  return branchId ? `&branchId=${encodeURIComponent(branchId)}` : "";
+}
+
+function LeadCreatedNextSteps({ id, values }: { id: string; values: ResourceValues }) {
+  const branchQuery = branchQueryOf(values);
+  return createElement(
+    Card,
+    { className: "space-y-4" },
+    createElement("p", { className: "text-sm font-semibold text-ink" }, "Lead created successfully"),
+    createElement(
+      "p",
+      { className: "text-sm text-neutral-500" },
+      "Stay with this lead. Follow up, start a trial, or convert without searching again.",
+    ),
+    createElement(
+      "div",
+      { className: "flex flex-wrap gap-2" },
+      createElement(ButtonLink, { href: `/crm/leads/${id}`, size: "sm" }, "View lead"),
+      createElement(
+        ButtonLink,
+        { href: `/crm/follow-ups/add?leadId=${id}${branchQuery}`, variant: "outline", size: "sm" },
+        "Add follow-up",
+      ),
+      createElement(
+        ButtonLink,
+        { href: `/crm/trials/add?leadId=${id}${branchQuery}`, variant: "outline", size: "sm" },
+        "Schedule trial",
+      ),
+      createElement(
+        ButtonLink,
+        { href: `/crm/leads/${id}/convert`, variant: "outline", size: "sm" },
+        "Convert to member",
+      ),
+    ),
+  );
+}
+
+function FollowUpCreatedNextSteps({ id, values }: { id: string; values: ResourceValues }) {
+  const leadId = typeof values.leadId === "string" ? values.leadId : "";
+  const memberId = typeof values.memberId === "string" ? values.memberId : "";
+  const branchQuery = branchQueryOf(values);
+  return createElement(
+    Card,
+    { className: "space-y-4" },
+    createElement("p", { className: "text-sm font-semibold text-ink" }, "Follow-up scheduled"),
+    createElement(
+      "p",
+      { className: "text-sm text-neutral-500" },
+      "Open the person or schedule the next step without searching again.",
+    ),
+    createElement(
+      "div",
+      { className: "flex flex-wrap gap-2" },
+      createElement(ButtonLink, { href: `/crm/follow-ups/${id}`, size: "sm" }, "View follow-up"),
+      leadId
+        ? createElement(ButtonLink, { href: `/crm/leads/${leadId}`, variant: "outline", size: "sm" }, "View lead")
+        : null,
+      memberId
+        ? createElement(ButtonLink, { href: `/members/${memberId}`, variant: "outline", size: "sm" }, "View member")
+        : null,
+      leadId
+        ? createElement(
+            ButtonLink,
+            { href: `/crm/trials/add?leadId=${leadId}${branchQuery}`, variant: "outline", size: "sm" },
+            "Schedule trial",
+          )
+        : null,
+    ),
+  );
+}
+
+function TrialCreatedNextSteps({ id, values }: { id: string; values: ResourceValues }) {
+  const leadId = typeof values.leadId === "string" ? values.leadId : "";
+  const memberId = typeof values.memberId === "string" ? values.memberId : "";
+  const followUpHref = leadId
+    ? `/crm/follow-ups/add?leadId=${encodeURIComponent(leadId)}${branchQueryOf(values)}`
+    : `/crm/follow-ups/add`;
+  return createElement(
+    Card,
+    { className: "space-y-4" },
+    createElement("p", { className: "text-sm font-semibold text-ink" }, "Trial scheduled"),
+    createElement(
+      "p",
+      { className: "text-sm text-neutral-500" },
+      "A trial visit does not create a membership. Follow up or convert when the visit succeeds.",
+    ),
+    createElement(
+      "div",
+      { className: "flex flex-wrap gap-2" },
+      createElement(ButtonLink, { href: `/crm/trials/${id}`, size: "sm" }, "View trial"),
+      leadId
+        ? createElement(ButtonLink, { href: followUpHref, variant: "outline", size: "sm" }, "Add follow-up")
+        : null,
+      leadId && !memberId
+        ? createElement(
+            ButtonLink,
+            { href: `/crm/leads/${leadId}/convert`, variant: "outline", size: "sm" },
+            "Convert to member",
+          )
+        : null,
+      memberId
+        ? createElement(ButtonLink, { href: `/members/${memberId}`, variant: "outline", size: "sm" }, "View member")
+        : null,
+    ),
+  );
+}
 
 export const CRM_RESOURCES = {
   leads: leadResource,

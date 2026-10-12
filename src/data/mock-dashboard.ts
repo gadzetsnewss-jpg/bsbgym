@@ -448,5 +448,5 @@ export const QUICK_ACTIONS: QuickAction[] = [
   { id: "qa-2", label: "New Invoice", href: "/billing/new-invoice" },
   { id: "qa-3", label: "Check In", href: "/attendance" },
   { id: "qa-4", label: "Add Payment", href: "/billing/payments" },
-  { id: "qa-5", label: "Add Lead", href: "/crm/leads" },
+  { id: "qa-5", label: "Add Lead", href: "/crm/leads/add" },
 ];

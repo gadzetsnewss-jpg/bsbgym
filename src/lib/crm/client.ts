@@ -7,6 +7,7 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { friendlyMessage } from "@/lib/errors";
 import type { OrgResult } from "@/lib/org/members";
+import { followUpAdapter, trialAdapter, type FollowUpRow, type TrialRow } from "@/lib/crm/adapters";
 
 type AnyTable = "gym_members";
 type AnyFunction = "create_gym_member";
@@ -25,6 +26,7 @@ export interface CrmPipelineCounts {
   lost: number;
   followUpsToday: number;
   followUpsOverdue: number;
+  trialsUpcoming: number;
   trialsActive: number;
   referralsPending: number;
 }
@@ -90,6 +92,7 @@ export async function fetchCrmPipelineCounts(
     lost,
     followUpsToday,
     followUpsOverdue,
+    trialsUpcoming,
     trialsActive,
     referralsPending,
   ] = await Promise.all([
@@ -114,6 +117,13 @@ export async function fetchCrmPipelineCounts(
       .eq("status" as AnyColumn, "pending")
       .lt("due_at" as AnyColumn, start.toISOString())
       .then((result) => result.count ?? 0),
+    supabase
+      .from("trial_memberships" as AnyTable)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .in("status" as AnyColumn, ["scheduled", "active"])
+      .gte("starts_on" as AnyColumn, start.toISOString().slice(0, 10))
+      .then((result) => result.count ?? 0),
     countEq(organizationId, "trial_memberships", "status", "active"),
     countEq(organizationId, "referrals", "status", "pending"),
   ]);
@@ -128,9 +138,88 @@ export async function fetchCrmPipelineCounts(
       lost,
       followUpsToday,
       followUpsOverdue,
+      trialsUpcoming,
       trialsActive,
       referralsPending,
     },
     error: null,
   };
+}
+
+export async function fetchLeadFollowUps(
+  organizationId: string,
+  leadId: string,
+): Promise<OrgResult<FollowUpRow[]>> {
+  const result = await followUpAdapter.list({
+    organizationId,
+    search: "",
+    page: 1,
+    pageSize: 50,
+    filters: { leadId, bucket: "all", status: "all" },
+  });
+  if (result.error) return { data: null, error: result.error };
+  return {
+    data: result.data.rows.filter((row) => row.leadId === leadId),
+    error: null,
+  };
+}
+
+export async function fetchLeadTrials(
+  organizationId: string,
+  leadId: string,
+): Promise<OrgResult<TrialRow[]>> {
+  const result = await trialAdapter.list({
+    organizationId,
+    search: "",
+    page: 1,
+    pageSize: 50,
+    filters: { leadId, status: "all" },
+  });
+  if (result.error) return { data: null, error: result.error };
+  return {
+    data: result.data.rows.filter((row) => row.leadId === leadId),
+    error: null,
+  };
+}
+
+export async function findMatchingLeads(input: {
+  organizationId: string;
+  phone?: string | null;
+  email?: string | null;
+  excludeId?: string | null;
+}): Promise<OrgResult<{ id: string; fullName: string; phone: string | null; email: string | null }[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const phone = (input.phone ?? "").replace(/[^\d+]/g, "").trim();
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (!phone && !email) return { data: [], error: null };
+
+  let query = supabase
+    .from("leads" as AnyTable)
+    .select("id, full_name, first_name, last_name, phone, email")
+    .eq("organization_id", input.organizationId)
+    .limit(5);
+
+  if (phone && email) {
+    query = query.or(`phone.eq.${phone},email.eq.${email}`);
+  } else if (phone) {
+    query = query.eq("phone" as AnyColumn, phone);
+  } else {
+    query = query.eq("email" as AnyColumn, email);
+  }
+
+  const { data, error } = await query;
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  const rows = ((data ?? []) as unknown as Record<string, unknown>[])
+    .filter((row) => String(row.id) !== input.excludeId)
+    .map((row) => ({
+      id: String(row.id),
+      fullName:
+        (typeof row.full_name === "string" && row.full_name) ||
+        [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
+        "Lead",
+      phone: typeof row.phone === "string" ? row.phone : null,
+      email: typeof row.email === "string" ? row.email : null,
+    }));
+  return { data: rows, error: null };
 }
