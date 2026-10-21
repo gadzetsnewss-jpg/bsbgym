@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { IncomeList } from "@/components/finance/income-list";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/finance/income" />;
+export const metadata: Metadata = { title: "Other income" };
+
+export default function IncomePage() {
+  return <IncomeList />;
 }

@@ -3,14 +3,17 @@
 import { cn } from "@/lib/utils";
 import * as React from "react";
 import Link from "next/link";
-import { ArrowUpRight, Download, Eye } from "lucide-react";
+import { ArrowUpRight, Eye } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/badge";
-import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
+import { EmptyState } from "@/components/ui/empty-state";
 import { RowActions } from "@/components/ui/row-actions";
-import { useToast } from "@/components/ui/toast";
-import { RECENT_PAYMENTS } from "@/data/mock-dashboard";
+import { useOrganization } from "@/components/auth/org-provider";
+import { useFinanceSettings } from "@/components/finance/use-finance-settings";
+import { fetchRecentPaymentsLive } from "@/lib/dashboard/client";
 import type { PaymentMethod } from "@/types/dashboard";
 
 const columns: Column<PaymentMethod>[] = [
@@ -52,8 +55,33 @@ const columns: Column<PaymentMethod>[] = [
 ];
 
 export function RecentPayments({ className }: { className?: string }) {
-  const { toast } = useToast();
-  const [range, setRange] = React.useState("30d");
+  const { organization, can } = useOrganization();
+  const orgId = organization?.id;
+  const canView = can("payments.view") || can("billing.view") || can("finance.view") || can("dashboard.view");
+  const { currency, dateFormat, decimalPlaces } = useFinanceSettings();
+  const [rows, setRows] = React.useState<PaymentMethod[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    if (!orgId || !canView) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const result = await fetchRecentPaymentsLive(orgId, currency, dateFormat, decimalPlaces);
+    setLoading(false);
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+    setRows(result.data);
+  }, [orgId, canView, currency, dateFormat, decimalPlaces]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
 
   const actionColumns: Column<PaymentMethod>[] = [
     ...columns,
@@ -68,22 +96,7 @@ export function RecentPayments({ className }: { className?: string }) {
             {
               label: "View invoice",
               icon: Eye,
-              onClick: () =>
-                toast({
-                  title: `Viewing ${row.invoice}`,
-                  description: `${row.member} · ${row.amount}`,
-                  variant: "info",
-                }),
-            },
-            {
-              label: "Download PDF",
-              icon: Download,
-              onClick: () =>
-                toast({
-                  title: "PDF export",
-                  description: "Invoice downloads arrive with Phase 1.",
-                  variant: "info",
-                }),
+              href: "/billing/payments",
             },
           ]}
         />
@@ -97,25 +110,36 @@ export function RecentPayments({ className }: { className?: string }) {
         <div>
           <CardTitle>Recent Payments</CardTitle>
           <p className="mt-0.5 text-sm text-neutral-500">
-            Latest collections across branches
+            Latest invoice payments. POS sales are listed separately.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <DateRangePicker value={range} onValueChange={setRange} />
-          <Link
-            href="/billing/payments"
-            className="inline-flex items-center gap-1 text-sm font-medium text-primary-700 transition-colors hover:text-primary-800"
-          >
-            View all
-            <ArrowUpRight aria-hidden="true" className="size-3.5" />
-          </Link>
-        </div>
+        <Link
+          href="/billing/payments"
+          className="inline-flex items-center gap-1 text-sm font-medium text-primary-700 transition-colors hover:text-primary-800"
+        >
+          View all
+          <ArrowUpRight aria-hidden="true" className="size-3.5" />
+        </Link>
       </CardHeader>
-      <DataTable
-        columns={actionColumns}
-        data={RECENT_PAYMENTS}
-        rowKey={(row) => row.id}
-      />
+      {!canView ? (
+        <div className="p-5">
+          <EmptyState title="Payments are restricted" description="You do not have permission to view payments." />
+        </div>
+      ) : error ? (
+        <div className="p-5">
+          <ErrorState description={error} onRetry={() => void load()} />
+        </div>
+      ) : loading ? (
+        <div className="p-5">
+          <LoadingState label="Loading payments…" />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="p-5">
+          <EmptyState title="No invoice payments yet" description="Recorded invoice payments appear here." />
+        </div>
+      ) : (
+        <DataTable columns={actionColumns} data={rows} rowKey={(row) => row.id} />
+      )}
     </Card>
   );
 }

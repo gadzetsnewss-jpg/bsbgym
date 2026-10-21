@@ -1,14 +1,32 @@
 /**
- * Org-scoped dashboard reads (Phase 4).
+ * Org-scoped dashboard reads (Phase 4 + Phase 9).
  *
- * Attendance and upcoming classes are live. Other KPI tiles still come from
- * mock data until later phases replace them.
+ * Attendance, classes, members, memberships, collections, stock and CRM
+ * counts are live. Collected cash reuses finance dashboard math and is
+ * never invoice totals.
  */
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { friendlyMessage } from "@/lib/errors";
 import type { OrgResult } from "@/lib/org/members";
-import type { AttendanceOverviewData, UpcomingClass } from "@/types/dashboard";
+import type {
+  AttendanceOverviewData,
+  ExpiryItem,
+  LowStockItem,
+  MemberRow,
+  MembershipOverviewStats,
+  PaymentMethod,
+  RevenueDataset,
+  RevenuePeriod,
+  UpcomingClass,
+} from "@/types/dashboard";
+import { fetchFinanceDashboard, fetchFinanceSnapshot } from "@/lib/finance/client";
+import { fetchCrmPipelineCounts } from "@/lib/crm/client";
+import { fetchStockOverview } from "@/lib/inventory/client";
+import { remainingDaysFromToday } from "@/lib/operations/freeze";
+import { formatCurrencyWithDecimals, formatDatePattern } from "@/lib/format";
+import { PAYMENT_METHOD_LABELS } from "@/lib/billing/types";
+import { roundMoney } from "@/lib/billing/gst";
 
 type AnyTable = "gym_members";
 type Row = Record<string, unknown>;
@@ -204,4 +222,324 @@ export async function fetchTodaysAttendanceCount(
     .lt("check_in_at" as "created_at", today.end);
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return { data: count ?? 0, error: null };
+}
+
+function asString(value: unknown): string {
+  return typeof value === "string" ? value : value == null ? "" : String(value);
+}
+
+function isoDay(daysAgo: number): string {
+  const date = new Date();
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() - daysAgo);
+  return date.toISOString().slice(0, 10);
+}
+
+export interface DashboardKpiData {
+  activeMembers: number;
+  todaysAttendance: number;
+  todaysCollected: number;
+  outstanding: number;
+  outstandingInvoices: number;
+  expiringMemberships: number;
+  newLeads: number;
+}
+
+export async function fetchDashboardKpis(
+  organizationId: string,
+): Promise<OrgResult<DashboardKpiData>> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const today = new Date().toISOString().slice(0, 10);
+  const expiryLimit = new Date(`${today}T00:00:00`);
+  expiryLimit.setDate(expiryLimit.getDate() + 30);
+  const until = expiryLimit.toISOString().slice(0, 10);
+
+  const [members, attendance, finance, memberships, crm] = await Promise.all([
+    supabase
+      .from("gym_members")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "active"),
+    fetchTodaysAttendanceCount(organizationId),
+    fetchFinanceDashboard({ organizationId, from: today, to: today }),
+    supabase
+      .from("memberships" as AnyTable)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "active")
+      .gte("end_date" as "created_at", today)
+      .lte("end_date" as "created_at", until),
+    fetchCrmPipelineCounts(organizationId),
+  ]);
+
+  if (members.error) return { data: null, error: { message: friendlyMessage(members.error) } };
+  if (attendance.error) return { data: null, error: attendance.error };
+  if (finance.error) return { data: null, error: finance.error };
+  if (memberships.error) return { data: null, error: { message: friendlyMessage(memberships.error) } };
+  if (crm.error) return { data: null, error: crm.error };
+
+  const outstandingSnapshot = await fetchFinanceDashboard({ organizationId });
+  if (outstandingSnapshot.error) return { data: null, error: outstandingSnapshot.error };
+
+  return {
+    data: {
+      activeMembers: members.count ?? 0,
+      todaysAttendance: attendance.data ?? 0,
+      todaysCollected: finance.data.collectedTotal,
+      outstanding: outstandingSnapshot.data.outstanding,
+      outstandingInvoices: outstandingSnapshot.data.invoiceCount,
+      expiringMemberships: memberships.count ?? 0,
+      newLeads: crm.data.newLeads,
+    },
+    error: null,
+  };
+}
+
+export async function fetchMembershipOverviewStats(
+  organizationId: string,
+): Promise<OrgResult<MembershipOverviewStats>> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const today = new Date().toISOString().slice(0, 10);
+  const expiryLimit = new Date(`${today}T00:00:00`);
+  expiryLimit.setDate(expiryLimit.getDate() + 30);
+  const until = expiryLimit.toISOString().slice(0, 10);
+
+  const [active, expired, expiring, freezes] = await Promise.all([
+    supabase
+      .from("memberships" as AnyTable)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "active"),
+    supabase
+      .from("memberships" as AnyTable)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status" as "id", "expired"),
+    supabase
+      .from("memberships" as AnyTable)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("status", "active")
+      .gte("end_date" as "created_at", today)
+      .lte("end_date" as "created_at", until),
+    supabase
+      .from("membership_freezes" as AnyTable)
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .lte("start_date" as "id", today)
+      .gte("end_date" as "id", today),
+  ]);
+
+  const error = active.error ?? expired.error ?? expiring.error ?? freezes.error;
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: {
+      active: active.count ?? 0,
+      expiring: expiring.count ?? 0,
+      frozen: freezes.count ?? 0,
+      expired: expired.count ?? 0,
+    },
+    error: null,
+  };
+}
+
+export async function fetchRecentPaymentsLive(
+  organizationId: string,
+  currency = "INR",
+  dateFormat = "DD/MM/YYYY",
+  decimalPlaces = 2,
+): Promise<OrgResult<PaymentMethod[]>> {
+  const result = await fetchFinanceSnapshot({ organizationId });
+  if (result.error) return { data: null, error: result.error };
+  return {
+    data: result.data.payments.slice(0, 8).map((row) => ({
+      id: row.id,
+      invoice: row.invoiceNumber ?? "Invoice payment",
+      member: row.memberName ?? "Member",
+      plan: "",
+      amount: formatCurrencyWithDecimals(row.amount, currency, decimalPlaces),
+      method: PAYMENT_METHOD_LABELS[row.method] ?? row.method,
+      status: "Paid",
+      date: formatDatePattern(row.paidAt, dateFormat),
+    })),
+    error: null,
+  };
+}
+
+export async function fetchRecentMembersLive(
+  organizationId: string,
+  dateFormat = "DD/MM/YYYY",
+): Promise<OrgResult<MemberRow[]>> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("gym_members")
+    .select(
+      "id, full_name, first_name, last_name, status, joined_at, trainers!gym_members_assigned_trainer_fkey(full_name, first_name, last_name)",
+    )
+    .eq("organization_id", organizationId)
+    .order("joined_at", { ascending: false })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Row[]).map((row) => ({
+      id: asString(row.id),
+      name:
+        asString(row.full_name).trim() ||
+        [asString(row.first_name), asString(row.last_name)].filter(Boolean).join(" ").trim() ||
+        "Member",
+      plan: "—",
+      trainer: embedName(row.trainers),
+      joinedOn: formatDatePattern(asString(row.joined_at), dateFormat),
+      status: asString(row.status) || "active",
+    })),
+    error: null,
+  };
+}
+
+export async function fetchUpcomingExpiryLive(
+  organizationId: string,
+  dateFormat = "DD/MM/YYYY",
+): Promise<OrgResult<ExpiryItem[]>> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const today = new Date().toISOString().slice(0, 10);
+  const limit = new Date(`${today}T00:00:00`);
+  limit.setDate(limit.getDate() + 30);
+  const until = limit.toISOString().slice(0, 10);
+  const { data, error } = await supabase
+    .from("memberships" as AnyTable)
+    .select(
+      "id, end_date, gym_members(full_name, first_name, last_name, code), membership_plans(name, code)",
+    )
+    .eq("organization_id", organizationId)
+    .eq("status", "active")
+    .gte("end_date" as "created_at", today)
+    .lte("end_date" as "created_at", until)
+    .order("end_date" as "created_at", { ascending: true })
+    .limit(8);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Row[]).map((row) => {
+      const end = asString(row.end_date);
+      return {
+        id: asString(row.id),
+        name: embedName(row.gym_members),
+        plan: embedName(row.membership_plans),
+        expiresOn: formatDatePattern(end, dateFormat),
+        daysLeft: remainingDaysFromToday(end, today),
+      };
+    }),
+    error: null,
+  };
+}
+
+export async function fetchLowStockLive(
+  organizationId: string,
+): Promise<OrgResult<LowStockItem[]>> {
+  const result = await fetchStockOverview(organizationId);
+  if (result.error) return { data: null, error: result.error };
+  return {
+    data: result.data
+      .filter((row) => row.isLow)
+      .slice(0, 8)
+      .map((row) => ({
+        id: row.productId,
+        product: row.name,
+        sku: row.sku ?? "—",
+        current: row.stockQuantity,
+        minimum: row.reorderLevel,
+        unit: row.unit,
+      })),
+    error: null,
+  };
+}
+
+function weekdayShort(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", {
+    weekday: "short",
+    timeZone: "UTC",
+  });
+}
+
+function monthShort(iso: string): string {
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-GB", {
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+export async function fetchRevenueOverviewLive(
+  organizationId: string,
+  period: RevenuePeriod,
+): Promise<OrgResult<RevenueDataset>> {
+  const days = period === "7d" ? 6 : period === "30d" ? 29 : 364;
+  const from = isoDay(days);
+  const to = isoDay(0);
+  const snapshot = await fetchFinanceSnapshot({ organizationId, from, to });
+  if (snapshot.error) return { data: null, error: snapshot.error };
+
+  const buckets = new Map<string, { billed: number; collected: number }>();
+  const labels: string[] = [];
+
+  if (period === "12m") {
+    for (let i = 11; i >= 0; i -= 1) {
+      const date = new Date();
+      date.setUTCDate(1);
+      date.setUTCMonth(date.getUTCMonth() - i);
+      const key = date.toISOString().slice(0, 7);
+      labels.push(monthShort(`${key}-01`));
+      buckets.set(key, { billed: 0, collected: 0 });
+    }
+  } else {
+    for (let i = days; i >= 0; i -= 1) {
+      const day = isoDay(i);
+      labels.push(period === "7d" ? weekdayShort(day) : day.slice(5));
+      buckets.set(day, { billed: 0, collected: 0 });
+    }
+  }
+
+  const bucketKey = (iso: string) => (period === "12m" ? iso.slice(0, 7) : iso.slice(0, 10));
+
+  for (const invoice of snapshot.data.invoices) {
+    if (!["issued", "partially_paid", "overdue", "paid"].includes(invoice.status)) continue;
+    const key = bucketKey(invoice.issueDate);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.billed = roundMoney(bucket.billed + invoice.total);
+  }
+  for (const payment of snapshot.data.payments) {
+    const key = bucketKey(payment.paidAt);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.collected = roundMoney(bucket.collected + payment.amount);
+  }
+  for (const sale of snapshot.data.posSales) {
+    if (sale.status !== "completed") continue;
+    const key = bucketKey(sale.soldAt);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.collected = roundMoney(bucket.collected + sale.total);
+  }
+  for (const income of snapshot.data.income) {
+    const key = bucketKey(income.incomeDate);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.collected = roundMoney(bucket.collected + income.amount);
+  }
+
+  const billed = [...buckets.values()].map((bucket) => bucket.billed);
+  const collected = [...buckets.values()].map((bucket) => bucket.collected);
+
+  return {
+    data: {
+      period,
+      label: period === "7d" ? "Last 7 days" : period === "30d" ? "Last 30 days" : "Last 12 months",
+      labels,
+      series: [
+        { name: "Invoiced", color: "var(--color-primary-600)", data: billed },
+        { name: "Collected", color: "var(--color-accent-500)", data: collected },
+      ],
+    },
+    error: null,
+  };
 }

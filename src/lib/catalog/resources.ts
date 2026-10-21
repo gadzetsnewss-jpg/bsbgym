@@ -45,6 +45,10 @@ import {
   trainerFormSchema,
 } from "@/lib/validation/catalog-schemas";
 import { trainerDetailExtras } from "@/components/trainers/trainer-detail-extras";
+import {
+  productDetailExtras,
+  supplierDetailExtras,
+} from "@/components/inventory/catalog-shortcuts";
 
 const ACTIVE_FILTER = [
   { value: "true", label: "Active" },
@@ -385,6 +389,11 @@ export const productResource: ResourceConfig<ProductRow> = {
   validate: fromZod(productFormSchema),
   adapter: productAdapter,
   displayName: (row) => row.name,
+  extraRowActions: (row) => [
+    { label: "View stock", href: `/inventory/stock?product=${row.id}` },
+    { label: "Create purchase", href: `/inventory/purchases/new?product=${row.id}` },
+  ],
+  detailExtras: productDetailExtras,
 };
 
 export const supplierResource: ResourceConfig<SupplierRow> = {
@@ -440,6 +449,10 @@ export const supplierResource: ResourceConfig<SupplierRow> = {
   validate: fromZod(supplierFormSchema),
   adapter: supplierAdapter,
   displayName: (row) => row.name,
+  extraRowActions: (row) => [
+    { label: "Create purchase", href: `/inventory/purchases/new?supplier=${row.id}` },
+  ],
+  detailExtras: supplierDetailExtras,
 };
 
 export const CATALOG_RESOURCES = {

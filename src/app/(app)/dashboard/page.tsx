@@ -9,7 +9,6 @@ import { RecentMembers } from "@/components/dashboard/recent-members";
 import { UpcomingExpiry } from "@/components/dashboard/upcoming-expiry";
 import { UpcomingClasses } from "@/components/dashboard/upcoming-classes";
 import { LowStockAlerts } from "@/components/dashboard/low-stock";
-import { DASHBOARD_KPIS } from "@/data/mock-dashboard";
 
 export const metadata: Metadata = {
   title: "Dashboard",
@@ -20,7 +19,7 @@ export default function DashboardPage() {
     <div className="space-y-6">
       <GreetingBanner />
 
-      <KpiGrid metrics={DASHBOARD_KPIS} />
+      <KpiGrid />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <RevenueOverview className="lg:col-span-2" />

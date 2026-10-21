@@ -1,5 +1,7 @@
 import type { AppOrganization } from "@/lib/auth/types";
 import type { InvoiceRow, PaymentRow } from "@/lib/billing/types";
+import type { PosSaleRow } from "@/lib/inventory/types";
+import { roundMoney } from "@/lib/billing/gst";
 import {
   PAPER_PROFILES,
   PRODUCT_FOOTER,
@@ -177,6 +179,44 @@ export function paymentReceiptDocument(payment: PaymentRow, seller: DocumentPart
     payments: [{ method: payment.method, amount: payment.amount, reference: payment.reference }],
     highlightAmount: payment.amount,
     highlightLabel: "Amount received",
+  };
+}
+
+export function posSaleDocument(sale: PosSaleRow, seller: DocumentParty): DocumentModel {
+  const half = roundMoney(sale.taxTotal / 2);
+  return {
+    kind: "pos_receipt",
+    title: "SALE RECEIPT",
+    number: sale.saleNumber,
+    status: sale.status,
+    issueDate: sale.soldAt,
+    branchName: sale.branchName,
+    notes: sale.notes,
+    seller,
+    buyer: sale.memberName
+      ? { name: sale.memberName }
+      : { name: "Walk-in customer" },
+    lines: (sale.items ?? []).map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      rate: item.unitPrice,
+      taxRate: item.taxRate,
+      total: item.lineTotal,
+    })),
+    totals: {
+      subTotal: sale.subTotal,
+      discount: sale.discount,
+      cgst: half,
+      sgst: roundMoney(sale.taxTotal - half),
+      igst: 0,
+      roundOff: 0,
+      total: sale.total,
+      paid: sale.total,
+      balance: 0,
+    },
+    payments: [{ method: sale.paymentMethod, amount: sale.total }],
+    highlightAmount: sale.total,
+    highlightLabel: "Amount paid",
   };
 }
 

@@ -158,6 +158,7 @@ export interface PaymentRow {
   id: string;
   organizationId: string;
   branchId: string;
+  branchName: string;
   invoiceId: string | null;
   invoiceNumber: string | null;
   memberId: string | null;

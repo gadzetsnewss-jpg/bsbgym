@@ -165,6 +165,7 @@ function mapPayment(row: Row): PaymentRow {
     id: asString(row.id),
     organizationId: asString(row.organization_id),
     branchId: asString(row.branch_id),
+    branchName: branchName(row.branches),
     invoiceId: asNullableString(row.invoice_id),
     invoiceNumber: asNullableString(embed(row.invoices)?.invoice_number),
     memberId: asNullableString(row.member_id),
@@ -454,6 +455,7 @@ export async function fetchPayments(
     search?: string;
     method?: string;
     memberId?: string;
+    branchId?: string;
     from?: string;
     to?: string;
     page?: number;
@@ -470,7 +472,7 @@ export async function fetchPayments(
   let query = supabase
     .from("payments" as AnyTable)
     .select(
-      "id, organization_id, branch_id, invoice_id, member_id, amount, method, reference, paid_at, notes, created_by, invoices(invoice_number), gym_members(full_name, first_name, last_name, code)",
+      "id, organization_id, branch_id, invoice_id, member_id, amount, method, reference, paid_at, notes, created_by, invoices(invoice_number), gym_members(full_name, first_name, last_name, code), branches(id, name, code)",
       { count: "exact" },
     )
     .eq("organization_id", organizationId)
@@ -479,6 +481,7 @@ export async function fetchPayments(
 
   if (opts.method && opts.method !== "all") query = query.eq("method" as "id", opts.method);
   if (opts.memberId) query = query.eq("member_id" as "id", opts.memberId);
+  if (opts.branchId && opts.branchId !== "all") query = query.eq("branch_id" as "id", opts.branchId);
   if (opts.from) query = query.gte("paid_at" as "created_at", opts.from);
   if (opts.to) query = query.lte("paid_at" as "created_at", `${opts.to}T23:59:59`);
   const search = opts.search?.trim();

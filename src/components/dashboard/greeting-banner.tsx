@@ -9,11 +9,10 @@ import {
   Target,
   UserPlus,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/button";
+import { useOrganization } from "@/components/auth/org-provider";
 import { QUICK_ACTIONS } from "@/data/mock-dashboard";
-import { CURRENT_USER } from "@/data/mock-org";
 
 const QUICK_ACTION_ICONS: Record<string, LucideIcon> = {
   "qa-1": UserPlus,
@@ -38,6 +37,7 @@ function greetingFor(hour: number): string {
 }
 
 export function GreetingBanner() {
+  const { profile, organization } = useOrganization();
   const [dateLabel, setDateLabel] = React.useState("");
   const [greeting, setGreeting] = React.useState("Good morning");
 
@@ -47,7 +47,7 @@ export function GreetingBanner() {
     setGreeting(greetingFor(now.getHours()));
   }, []);
 
-  const firstName = CURRENT_USER.name.split(" ")[0];
+  const firstName = profile?.firstName?.trim() || organization?.name || "there";
 
   return (
     <Card className="relative overflow-hidden">

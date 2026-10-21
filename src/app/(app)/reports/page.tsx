@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { ReportsOverviewScreen } from "@/components/reports/reports-overview";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/reports" />;
+export const metadata: Metadata = { title: "Reports" };
+
+export default function ReportsPage() {
+  return <ReportsOverviewScreen />;
 }

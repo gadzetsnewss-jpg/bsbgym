@@ -1966,6 +1966,106 @@ export interface Database {
         Args: { p_supplier_id: string; p_active: boolean };
         Returns: void;
       };
+      create_expense: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_category: string;
+          p_description: string | null;
+          p_amount: number;
+          p_expense_date: string | null;
+          p_payment_method: string;
+          p_status: string;
+          p_reference: string | null;
+        };
+        Returns: string;
+      };
+      update_expense: {
+        Args: {
+          p_expense_id: string;
+          p_branch_id: string;
+          p_category: string;
+          p_description: string | null;
+          p_amount: number;
+          p_expense_date: string | null;
+          p_payment_method: string;
+          p_status: string;
+          p_reference: string | null;
+        };
+        Returns: void;
+      };
+      create_income_entry: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_category: string;
+          p_description: string | null;
+          p_amount: number;
+          p_income_date: string | null;
+          p_payment_method: string;
+          p_reference: string | null;
+        };
+        Returns: string;
+      };
+      update_income_entry: {
+        Args: {
+          p_income_entry_id: string;
+          p_branch_id: string;
+          p_category: string;
+          p_description: string | null;
+          p_amount: number;
+          p_income_date: string | null;
+          p_payment_method: string;
+          p_reference: string | null;
+        };
+        Returns: void;
+      };
+      create_purchase: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_supplier_id: string;
+          p_order_date: string | null;
+          p_notes: string | null;
+          p_items: Json;
+        };
+        Returns: string;
+      };
+      update_purchase: {
+        Args: {
+          p_purchase_id: string;
+          p_supplier_id: string;
+          p_order_date: string | null;
+          p_notes: string | null;
+          p_items: Json;
+        };
+        Returns: void;
+      };
+      receive_purchase: {
+        Args: { p_purchase_id: string };
+        Returns: void;
+      };
+      cancel_purchase: {
+        Args: { p_purchase_id: string };
+        Returns: void;
+      };
+      create_pos_sale: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_member_id: string | null;
+          p_payment_method: string;
+          p_discount: number;
+          p_tax_mode: string;
+          p_notes: string | null;
+          p_items: Json;
+        };
+        Returns: string;
+      };
+      void_pos_sale: {
+        Args: { p_sale_id: string };
+        Returns: void;
+      };
       create_membership: {
         Args: {
           p_org_id: string;
@@ -2512,6 +2612,14 @@ export interface Database {
           p_phone: string | null;
         };
         Returns: string;
+      };
+      mark_notification_read: {
+        Args: { p_notification_id: string };
+        Returns: void;
+      };
+      mark_all_notifications_read: {
+        Args: { p_org_id: string };
+        Returns: void;
       };
     };
     Enums: {
