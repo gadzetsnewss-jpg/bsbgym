@@ -247,7 +247,15 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("expense not found") ||
     text.includes("income category is required") ||
     text.includes("income amount must be greater than zero") ||
-    text.includes("income entry not found")
+    text.includes("income entry not found") ||
+    text.includes("a user is required") ||
+    text.includes("user is not a member of this organization") ||
+    text.includes("user must have the trainer role") ||
+    text.includes("user must have the member role") ||
+    text.includes("login is already linked to a member") ||
+    text.includes("login is already linked to a trainer") ||
+    text.includes("login is already linked to another trainer") ||
+    text.includes("login is already linked to another member")
   ) {
     return { code: "validation", message: raw };
   }

@@ -31,6 +31,9 @@ const DEFAULT_PAGE_SIZE = 20;
 
 export interface ResourceListProps<TRow> {
   config: ResourceConfig<TRow>;
+  title?: string;
+  description?: string;
+  emptyDescription?: string;
 }
 
 function initialFilters<TRow>(
@@ -45,15 +48,23 @@ function initialFilters<TRow>(
   );
 }
 
-export function ResourceList<TRow>({ config }: ResourceListProps<TRow>) {
+export function ResourceList<TRow>(props: ResourceListProps<TRow>) {
   return (
-    <React.Suspense fallback={<LoadingState label={`Loading ${config.title.toLowerCase()}…`} />}>
-      <ResourceListInner config={config} />
+    <React.Suspense fallback={<LoadingState label={`Loading ${props.config.title.toLowerCase()}…`} />}>
+      <ResourceListInner {...props} />
     </React.Suspense>
   );
 }
 
-function ResourceListInner<TRow>({ config }: ResourceListProps<TRow>) {
+function ResourceListInner<TRow>({
+  config,
+  title,
+  description,
+  emptyDescription,
+}: ResourceListProps<TRow>) {
+  const listTitle = title ?? config.title;
+  const listDescription = description ?? config.description;
+  const listEmptyDescription = emptyDescription ?? config.emptyDescription;
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -301,8 +312,8 @@ function ResourceListInner<TRow>({ config }: ResourceListProps<TRow>) {
   return (
     <div className="space-y-6">
       <PageHeader
-        title={config.title}
-        description={config.description}
+        title={listTitle}
+        description={listDescription}
         icon={config.icon}
         actions={
           canCreate && !config.hideCreate ? (
@@ -369,7 +380,7 @@ function ResourceListInner<TRow>({ config }: ResourceListProps<TRow>) {
           emptyDescription={
             activeFilterCount > 0
               ? "Try adjusting your search or clearing the filters."
-              : config.emptyDescription
+              : listEmptyDescription
           }
           emptyAction={
             canCreate && !config.hideCreate ? (

@@ -336,6 +336,7 @@ export function AddMemberForm() {
         country: parsed.data.country || null,
         assignedTrainerId: trainerId || null,
         assignedTrainerName: trainers.find((item) => item.id === trainerId)?.name ?? null,
+        userId: null,
         status: "active",
         joinedAt: parsed.data.joinedAt || todayIso(),
         createdAt: "",

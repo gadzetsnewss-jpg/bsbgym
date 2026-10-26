@@ -60,7 +60,19 @@ describe("gym members client", () => {
     expect(client).toMatch(/supabase\.rpc\("create_gym_member"/);
     expect(client).toMatch(/supabase\.rpc\("update_gym_member"/);
     expect(client).toMatch(/supabase\.rpc\("set_gym_member_status"/);
+    expect(client).toMatch(/supabase\.rpc\("link_trainer_user"/);
+    expect(client).toMatch(/supabase\.rpc\("unlink_trainer_user"/);
+    expect(client).toMatch(/supabase\.rpc\("link_gym_member_user"/);
+    expect(client).toMatch(/supabase\.rpc\("unlink_gym_member_user"/);
+    expect(client).toMatch(/supabase\.rpc\("set_pt_session_status"/);
     expect(client).not.toMatch(/\.from\("gym_members"\)[\s\S]{0,80}\.(insert|update|delete)\(/);
+  });
+
+  it("resolves linked trainer and member logins by user_id", () => {
+    expect(client).toMatch(/userId: row\.user_id \?\? null/);
+    expect(client).toMatch(/export async function fetchLinkedTrainerId/);
+    expect(client).toMatch(/export async function fetchLinkedGymMemberId/);
+    expect(client).toMatch(/\.eq\("user_id" as "id", userId\)/);
   });
 });
 

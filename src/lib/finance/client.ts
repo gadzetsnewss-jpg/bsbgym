@@ -388,35 +388,61 @@ export async function updateIncomeEntry(
    Transaction sources (POS, purchases, refunds) + full snapshot
    --------------------------------------------------------------------------- */
 
+const SNAPSHOT_PAGE_SIZE = 200;
+const SNAPSHOT_MAX_PAGES = 50;
+
+function mapPosSale(row: Row): FinancePosSaleRow {
+  return {
+    id: asString(row.id),
+    branchId: asString(row.branch_id),
+    branchName: branchName(row.branches),
+    saleNumber: asString(row.sale_number),
+    status: asString(row.status) || "completed",
+    total: asNumber(row.total),
+    paymentMethod: asString(row.payment_method) || "cash",
+    soldAt: asString(row.sold_at),
+  };
+}
+
 async function fetchPosSales(
   scope: FinanceScope,
 ): Promise<OrgResult<FinancePosSaleRow[]>> {
   const supabase = clientOrNull();
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
-  let query = supabase
-    .from("pos_sales" as AnyTable)
-    .select("id, branch_id, sale_number, status, total, payment_method, sold_at, branches(id, name, code)")
-    .eq("organization_id", scope.organizationId)
-    .order("sold_at" as "created_at", { ascending: false })
-    .limit(5000);
-  if (scope.branchId && scope.branchId !== "all")
-    query = query.eq("branch_id" as "id", scope.branchId);
-  if (scope.from) query = query.gte("sold_at" as "created_at", `${scope.from}T00:00:00`);
-  if (scope.to) query = query.lte("sold_at" as "created_at", `${scope.to}T23:59:59`);
-  const { data, error } = await query;
-  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  const rows: FinancePosSaleRow[] = [];
+  for (let page = 1; page <= SNAPSHOT_MAX_PAGES; page += 1) {
+    const from = (page - 1) * SNAPSHOT_PAGE_SIZE;
+    const to = from + SNAPSHOT_PAGE_SIZE - 1;
+    let query = supabase
+      .from("pos_sales" as AnyTable)
+      .select("id, branch_id, sale_number, status, total, payment_method, sold_at, branches(id, name, code)")
+      .eq("organization_id", scope.organizationId)
+      .order("sold_at" as "created_at", { ascending: false })
+      .range(from, to);
+    if (scope.branchId && scope.branchId !== "all")
+      query = query.eq("branch_id" as "id", scope.branchId);
+    if (scope.from) query = query.gte("sold_at" as "created_at", `${scope.from}T00:00:00`);
+    if (scope.to) query = query.lte("sold_at" as "created_at", `${scope.to}T23:59:59`);
+    const { data, error } = await query;
+    if (error) return { data: null, error: { message: friendlyMessage(error) } };
+    const pageRows = ((data ?? []) as unknown as Row[]).map(mapPosSale);
+    rows.push(...pageRows);
+    if (pageRows.length < SNAPSHOT_PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
+
+function mapPurchase(row: Row): FinancePurchaseRow {
   return {
-    data: ((data ?? []) as unknown as Row[]).map((row) => ({
-      id: asString(row.id),
-      branchId: asString(row.branch_id),
-      branchName: branchName(row.branches),
-      saleNumber: asString(row.sale_number),
-      status: asString(row.status) || "completed",
-      total: asNumber(row.total),
-      paymentMethod: asString(row.payment_method) || "cash",
-      soldAt: asString(row.sold_at),
-    })),
-    error: null,
+    id: asString(row.id),
+    branchId: asString(row.branch_id),
+    branchName: branchName(row.branches),
+    purchaseNumber: asString(row.purchase_number),
+    supplierName: asNullableString(embed(row.suppliers)?.name),
+    status: asString(row.status),
+    orderDate: asString(row.order_date),
+    receivedDate: asNullableString(row.received_date),
+    total: asNumber(row.total),
   };
 }
 
@@ -425,34 +451,40 @@ async function fetchPurchasesForFinance(
 ): Promise<OrgResult<FinancePurchaseRow[]>> {
   const supabase = clientOrNull();
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
-  let query = supabase
-    .from("purchases" as AnyTable)
-    .select(
-      "id, branch_id, purchase_number, status, order_date, received_date, total, suppliers(name), branches(id, name, code)",
-    )
-    .eq("organization_id", scope.organizationId)
-    .eq("status" as "id", "received")
-    .order("received_date" as "created_at", { ascending: false })
-    .limit(5000);
-  if (scope.branchId && scope.branchId !== "all")
-    query = query.eq("branch_id" as "id", scope.branchId);
-  if (scope.from) query = query.gte("received_date" as "created_at", scope.from);
-  if (scope.to) query = query.lte("received_date" as "created_at", scope.to);
-  const { data, error } = await query;
-  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  const rows: FinancePurchaseRow[] = [];
+  for (let page = 1; page <= SNAPSHOT_MAX_PAGES; page += 1) {
+    const from = (page - 1) * SNAPSHOT_PAGE_SIZE;
+    const to = from + SNAPSHOT_PAGE_SIZE - 1;
+    let query = supabase
+      .from("purchases" as AnyTable)
+      .select(
+        "id, branch_id, purchase_number, status, order_date, received_date, total, suppliers(name), branches(id, name, code)",
+      )
+      .eq("organization_id", scope.organizationId)
+      .eq("status" as "id", "received")
+      .order("received_date" as "created_at", { ascending: false })
+      .range(from, to);
+    if (scope.branchId && scope.branchId !== "all")
+      query = query.eq("branch_id" as "id", scope.branchId);
+    if (scope.from) query = query.gte("received_date" as "created_at", scope.from);
+    if (scope.to) query = query.lte("received_date" as "created_at", scope.to);
+    const { data, error } = await query;
+    if (error) return { data: null, error: { message: friendlyMessage(error) } };
+    const pageRows = ((data ?? []) as unknown as Row[]).map(mapPurchase);
+    rows.push(...pageRows);
+    if (pageRows.length < SNAPSHOT_PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
+}
+
+function mapRefund(row: Row): FinanceRefundRow {
   return {
-    data: ((data ?? []) as unknown as Row[]).map((row) => ({
-      id: asString(row.id),
-      branchId: asString(row.branch_id),
-      branchName: branchName(row.branches),
-      purchaseNumber: asString(row.purchase_number),
-      supplierName: asNullableString(embed(row.suppliers)?.name),
-      status: asString(row.status),
-      orderDate: asString(row.order_date),
-      receivedDate: asNullableString(row.received_date),
-      total: asNumber(row.total),
-    })),
-    error: null,
+    id: asString(row.id),
+    branchId: asString(row.branch_id),
+    invoiceId: asNullableString(row.invoice_id),
+    amount: asNumber(row.amount),
+    status: asString(row.status),
+    processedAt: asNullableString(row.processed_at),
   };
 }
 
@@ -461,30 +493,28 @@ async function fetchRefundsForFinance(
 ): Promise<OrgResult<FinanceRefundRow[]>> {
   const supabase = clientOrNull();
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
-  let query = supabase
-    .from("refunds" as AnyTable)
-    .select("id, branch_id, invoice_id, amount, status, processed_at")
-    .eq("organization_id", scope.organizationId)
-    .eq("status" as "id", "processed")
-    .order("processed_at" as "created_at", { ascending: false })
-    .limit(5000);
-  if (scope.branchId && scope.branchId !== "all")
-    query = query.eq("branch_id" as "id", scope.branchId);
-  if (scope.from) query = query.gte("processed_at" as "created_at", `${scope.from}T00:00:00`);
-  if (scope.to) query = query.lte("processed_at" as "created_at", `${scope.to}T23:59:59`);
-  const { data, error } = await query;
-  if (error) return { data: null, error: { message: friendlyMessage(error) } };
-  return {
-    data: ((data ?? []) as unknown as Row[]).map((row) => ({
-      id: asString(row.id),
-      branchId: asString(row.branch_id),
-      invoiceId: asNullableString(row.invoice_id),
-      amount: asNumber(row.amount),
-      status: asString(row.status),
-      processedAt: asNullableString(row.processed_at),
-    })),
-    error: null,
-  };
+  const rows: FinanceRefundRow[] = [];
+  for (let page = 1; page <= SNAPSHOT_MAX_PAGES; page += 1) {
+    const from = (page - 1) * SNAPSHOT_PAGE_SIZE;
+    const to = from + SNAPSHOT_PAGE_SIZE - 1;
+    let query = supabase
+      .from("refunds" as AnyTable)
+      .select("id, branch_id, invoice_id, amount, status, processed_at")
+      .eq("organization_id", scope.organizationId)
+      .eq("status" as "id", "processed")
+      .order("processed_at" as "created_at", { ascending: false })
+      .range(from, to);
+    if (scope.branchId && scope.branchId !== "all")
+      query = query.eq("branch_id" as "id", scope.branchId);
+    if (scope.from) query = query.gte("processed_at" as "created_at", `${scope.from}T00:00:00`);
+    if (scope.to) query = query.lte("processed_at" as "created_at", `${scope.to}T23:59:59`);
+    const { data, error } = await query;
+    if (error) return { data: null, error: { message: friendlyMessage(error) } };
+    const pageRows = ((data ?? []) as unknown as Row[]).map(mapRefund);
+    rows.push(...pageRows);
+    if (pageRows.length < SNAPSHOT_PAGE_SIZE) break;
+  }
+  return { data: rows, error: null };
 }
 
 async function fetchAllExpenses(scope: FinanceScope): Promise<OrgResult<ExpenseRow[]>> {

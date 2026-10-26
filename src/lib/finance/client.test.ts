@@ -31,6 +31,13 @@ describe("finance client reads", () => {
     expect(client).toMatch(/\.eq\("status" as "id", "received"\)/);
     expect(client).toMatch(/\.eq\("status" as "id", "processed"\)/);
   });
+
+  it("pages POS, purchase and refund snapshot reads instead of a 5000-row cap", () => {
+    expect(client).toMatch(/const SNAPSHOT_PAGE_SIZE = 200/);
+    expect(client).toMatch(/const SNAPSHOT_MAX_PAGES = 50/);
+    expect(client).not.toMatch(/\.limit\(5000\)/);
+    expect(client).toMatch(/\.range\(from, to\)/);
+  });
 });
 
 describe("finance client writes", () => {

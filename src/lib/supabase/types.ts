@@ -317,17 +317,11 @@ export interface Database {
           preferences: Json;
         }>;
         Update: Partial<{
-          id: string;
           first_name: string;
           last_name: string;
-          email: string | null;
           phone: string | null;
-          username: string | null;
           contact_number: string | null;
           avatar_url: string | null;
-          status?: UserStatus;
-          org_id?: string | null;
-          branch_id?: string | null;
           preferences: Json;
         }>;
         Relationships: [
@@ -721,6 +715,7 @@ export interface Database {
           postal_code: string | null;
           country: string | null;
           assigned_trainer_id: string | null;
+          user_id: string | null;
           status: GymMemberStatus;
           joined_at: string;
           created_by: string | null;
@@ -749,6 +744,7 @@ export interface Database {
           postal_code: string | null;
           country: string | null;
           assigned_trainer_id: string | null;
+          user_id: string | null;
           status: GymMemberStatus;
           joined_at: string;
           created_by: string | null;
@@ -775,6 +771,7 @@ export interface Database {
           postal_code: string | null;
           country: string | null;
           assigned_trainer_id: string | null;
+          user_id: string | null;
           status: GymMemberStatus;
           joined_at: string;
           created_by: string | null;
@@ -815,6 +812,7 @@ export interface Database {
           hourly_rate: number | null;
           status: string;
           joined_at: string;
+          user_id: string | null;
           created_by: string | null;
           created_at: string;
           updated_at: string;
@@ -2612,6 +2610,22 @@ export interface Database {
           p_phone: string | null;
         };
         Returns: string;
+      };
+      link_trainer_user: {
+        Args: { p_trainer_id: string; p_user_id: string };
+        Returns: void;
+      };
+      unlink_trainer_user: {
+        Args: { p_trainer_id: string };
+        Returns: void;
+      };
+      link_gym_member_user: {
+        Args: { p_member_id: string; p_user_id: string };
+        Returns: void;
+      };
+      unlink_gym_member_user: {
+        Args: { p_member_id: string };
+        Returns: void;
       };
       mark_notification_read: {
         Args: { p_notification_id: string };

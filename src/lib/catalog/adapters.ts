@@ -76,6 +76,7 @@ export interface TrainerRow {
   hourlyRate: number | null;
   status: string;
   joinedAt: string;
+  userId: string | null;
 }
 
 export interface MembershipPlanRow {
@@ -186,7 +187,7 @@ export async function loadTrainerOptions(organizationId: string): Promise<Select
 export const trainerAdapter = createTableAdapter<TrainerRow>({
   table: "trainers",
   select:
-    "id, organization_id, branch_id, code, first_name, last_name, full_name, email, phone, specialization, bio, hourly_rate, status, joined_at, branches(id, name, code)",
+    "id, organization_id, branch_id, code, first_name, last_name, full_name, email, phone, specialization, bio, hourly_rate, status, joined_at, user_id, branches(id, name, code)",
   searchColumns: ["full_name", "code", "email", "phone"],
   order: { column: "first_name" },
   filterColumns: { status: "status" },
@@ -213,6 +214,7 @@ export const trainerAdapter = createTableAdapter<TrainerRow>({
       hourlyRate: asNullableNumber(row.hourly_rate),
       status: asString(row.status) || "active",
       joinedAt: asString(row.joined_at),
+      userId: asNullableString(row.user_id),
     };
   },
   toFormValues: (row): ResourceValues => ({

@@ -3,8 +3,10 @@
  *
  * Users can only ever update their OWN profile row - enforced both by the
  * RLS policy (`profiles` update WHERE auth.uid() = id) and by always passing
- * the signed-in user's id here. Organization ownership, roles, permissions
- * and protected settings are never editable through this surface.
+ * the signed-in user's id here. Privileged columns (status, org_id, branch_id,
+ * email, username) are blocked by `protect_profile_username`. Organization
+ * ownership, roles, permissions and protected settings are never editable
+ * through this surface.
  */
 
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";

@@ -45,6 +45,7 @@ export interface GymMemberRow {
   country: string | null;
   assignedTrainerId: string | null;
   assignedTrainerName: string | null;
+  userId: string | null;
   status: GymMemberStatus;
   joinedAt: string;
   createdAt: string;
@@ -89,6 +90,7 @@ type GymMemberQueryRow = {
   postal_code: string | null;
   country: string | null;
   assigned_trainer_id: string | null;
+  user_id: string | null;
   status: GymMemberStatus;
   joined_at: string;
   created_at: string;
@@ -137,6 +139,7 @@ function mapRow(row: GymMemberQueryRow): GymMemberRow {
     country: row.country,
     assignedTrainerId: row.assigned_trainer_id,
     assignedTrainerName: trainerName,
+    userId: row.user_id ?? null,
     status: row.status,
     joinedAt: row.joined_at,
     createdAt: row.created_at,
@@ -145,7 +148,7 @@ function mapRow(row: GymMemberQueryRow): GymMemberRow {
 }
 
 const SELECT_COLUMNS =
-  "id, organization_id, branch_id, code, first_name, last_name, full_name, email, phone, gender, date_of_birth, photo_url, emergency_contact_name, emergency_contact_phone, notes, address_line1, address_line2, city, state, postal_code, country, assigned_trainer_id, status, joined_at, created_at, updated_at, branches!gym_members_branch_id_fkey(id, name, code), trainers!gym_members_assigned_trainer_fkey(id, full_name, first_name, last_name)";
+  "id, organization_id, branch_id, code, first_name, last_name, full_name, email, phone, gender, date_of_birth, photo_url, emergency_contact_name, emergency_contact_phone, notes, address_line1, address_line2, city, state, postal_code, country, assigned_trainer_id, user_id, status, joined_at, created_at, updated_at, branches!gym_members_branch_id_fkey(id, name, code), trainers!gym_members_assigned_trainer_fkey(id, full_name, first_name, last_name)";
 
 export async function fetchGymMembers(
   filters: GymMemberListFilters,
@@ -734,6 +737,100 @@ export async function fetchMemberActivity(
     })),
     error: null,
   };
+}
+
+export async function linkTrainerUser(
+  trainerId: string,
+  userId: string,
+): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { error } = await supabase.rpc("link_trainer_user", {
+    p_trainer_id: trainerId,
+    p_user_id: userId,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function unlinkTrainerUser(trainerId: string): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { error } = await supabase.rpc("unlink_trainer_user", {
+    p_trainer_id: trainerId,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function linkGymMemberUser(
+  memberId: string,
+  userId: string,
+): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { error } = await supabase.rpc("link_gym_member_user", {
+    p_member_id: memberId,
+    p_user_id: userId,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function unlinkGymMemberUser(memberId: string): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { error } = await supabase.rpc("unlink_gym_member_user", {
+    p_member_id: memberId,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function setPtSessionStatus(
+  sessionId: string,
+  status: string,
+): Promise<OrgResult> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { error } = await supabase.rpc("set_pt_session_status", {
+    p_session_id: sessionId,
+    p_status: status,
+  });
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: undefined, error: null };
+}
+
+export async function fetchLinkedTrainerId(
+  organizationId: string,
+  userId: string,
+): Promise<OrgResult<string | null>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("trainers" as AnyTable)
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("user_id" as "id", userId)
+    .maybeSingle();
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: data?.id ? String(data.id) : null, error: null };
+}
+
+export async function fetchLinkedGymMemberId(
+  organizationId: string,
+  userId: string,
+): Promise<OrgResult<string | null>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("gym_members")
+    .select("id")
+    .eq("organization_id", organizationId)
+    .eq("user_id" as "id", userId)
+    .maybeSingle();
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return { data: data?.id ? String(data.id) : null, error: null };
 }
 
 export async function fetchTrainerOptions(

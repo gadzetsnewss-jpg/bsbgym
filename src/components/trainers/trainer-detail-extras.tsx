@@ -18,6 +18,7 @@ import {
 } from "@/lib/org/gym-members";
 import { formatDate, formatDateTime } from "@/lib/format";
 import type { TrainerRow } from "@/lib/catalog/adapters";
+import { TrainerLoginLinkPanel } from "@/components/org/login-link-panel";
 
 function humanLabel(value: string) {
   return value
@@ -26,10 +27,16 @@ function humanLabel(value: string) {
 }
 
 export function trainerDetailExtras(row: TrainerRow) {
-  return <TrainerDetailExtras trainerId={row.id} />;
+  return <TrainerDetailExtras trainerId={row.id} linkedUserId={row.userId} />;
 }
 
-function TrainerDetailExtras({ trainerId }: { trainerId: string }) {
+function TrainerDetailExtras({
+  trainerId,
+  linkedUserId,
+}: {
+  trainerId: string;
+  linkedUserId: string | null;
+}) {
   const { organization, can } = useOrganization();
   const orgId = organization?.id;
   const canView = can("trainers.view");
@@ -81,6 +88,8 @@ function TrainerDetailExtras({ trainerId }: { trainerId: string }) {
 
   return (
     <div className="space-y-6">
+      <TrainerLoginLinkPanel trainerId={trainerId} linkedUserId={linkedUserId} />
+
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-ink">Assigned members</h3>

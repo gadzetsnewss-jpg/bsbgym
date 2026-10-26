@@ -8,8 +8,25 @@ function catalogConfig(resource: CatalogResourceKey): ResourceConfig<unknown> {
   return CATALOG_RESOURCES[resource] as ResourceConfig<unknown>;
 }
 
-export function CatalogList({ resource }: { resource: CatalogResourceKey }) {
-  return <ResourceList config={catalogConfig(resource)} />;
+export function CatalogList({
+  resource,
+  title,
+  description,
+  emptyDescription,
+}: {
+  resource: CatalogResourceKey;
+  title?: string;
+  description?: string;
+  emptyDescription?: string;
+}) {
+  return (
+    <ResourceList
+      config={catalogConfig(resource)}
+      title={title}
+      description={description}
+      emptyDescription={emptyDescription}
+    />
+  );
 }
 
 export function CatalogForm({

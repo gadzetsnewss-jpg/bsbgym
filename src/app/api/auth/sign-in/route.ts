@@ -51,5 +51,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: GENERIC_CREDENTIALS_MESSAGE }, { status: 401 });
   }
 
-  return NextResponse.json({ ok: true, userId: data.user.id });
+  return NextResponse.json({ ok: true });
 }
