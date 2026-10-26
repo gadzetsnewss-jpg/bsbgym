@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { OperationsList } from "@/components/operations/operations-screens";
+import { PtSessionsHome } from "@/components/trainers/pt-sessions-home";
 
 export const metadata: Metadata = { title: "PT sessions" };
 
 export default function PtSessionsPage() {
-  return <OperationsList resource="pt_sessions" />;
+  return <PtSessionsHome />;
 }

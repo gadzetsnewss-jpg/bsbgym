@@ -90,7 +90,7 @@ const toResultError = (error: unknown): { message: string; code?: string } => {
 export async function signInWithPassword(
   username: string,
   password: string,
-): Promise<AuthResult<{ userId: string }>> {
+): Promise<AuthResult> {
   if (!getSupabaseBrowserClient()) {
     return { data: null, error: { message: "Supabase is not configured." } };
   }
@@ -101,14 +101,14 @@ export async function signInWithPassword(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     });
-    const payload = (await response.json()) as { userId?: string; error?: string };
-    if (!response.ok || !payload.userId) {
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !payload.ok) {
       return {
         data: null,
         error: { message: payload.error || GENERIC_CREDENTIALS_MESSAGE },
       };
     }
-    return { data: { userId: payload.userId }, error: null };
+    return { data: undefined, error: null };
   } catch {
     return { data: null, error: { message: "Something went wrong. Please try again." } };
   }

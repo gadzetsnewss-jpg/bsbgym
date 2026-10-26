@@ -12,14 +12,32 @@ import {
   dietPlanDetailExtras,
   workoutPlanDetailExtras,
 } from "@/components/fitness/plan-item-panels";
-import type { DietPlanRow, MembershipRow, WorkoutPlanRow } from "@/lib/operations/adapters";
+import { ptSessionDetailExtras } from "@/components/trainers/pt-session-status";
+import type { DietPlanRow, MembershipRow, PtSessionRow, WorkoutPlanRow } from "@/lib/operations/adapters";
 
 function operationsConfig(resource: OperationsResourceKey): ResourceConfig<unknown> {
   return OPERATIONS_RESOURCES[resource] as ResourceConfig<unknown>;
 }
 
-export function OperationsList({ resource }: { resource: OperationsResourceKey }) {
-  return <ResourceList config={operationsConfig(resource)} />;
+export function OperationsList({
+  resource,
+  title,
+  description,
+  emptyDescription,
+}: {
+  resource: OperationsResourceKey;
+  title?: string;
+  description?: string;
+  emptyDescription?: string;
+}) {
+  return (
+    <ResourceList
+      config={operationsConfig(resource)}
+      title={title}
+      description={description}
+      emptyDescription={emptyDescription}
+    />
+  );
 }
 
 export function OperationsForm({
@@ -52,8 +70,10 @@ export function OperationsDetail({
       ? (row: unknown) => membershipDetailExtras(row as MembershipRow)
       : resource === "workout_plans"
         ? (row: unknown) => workoutPlanDetailExtras(row as WorkoutPlanRow)
-        : resource === "diet_plans"
-          ? (row: unknown) => dietPlanDetailExtras(row as DietPlanRow)
+      : resource === "diet_plans"
+        ? (row: unknown) => dietPlanDetailExtras(row as DietPlanRow)
+        : resource === "pt_sessions"
+          ? (row: unknown) => ptSessionDetailExtras(row as PtSessionRow)
           : undefined;
   return (
     <ResourceDetail config={operationsConfig(resource)} id={id} extras={extras}>

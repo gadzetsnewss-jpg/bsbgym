@@ -56,6 +56,13 @@ describe("toFriendlyError", () => {
     expect(toFriendlyError({ message: "a valid email is required" }).code).toBe("validation");
     expect(toFriendlyError({ message: "role slug is required" }).code).toBe("validation");
     expect(toFriendlyError({ message: "branch code already exists" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "product name is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "product sku already exists" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "stock values cannot be negative" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "supplier name is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "trainer code already exists" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "plan code already exists" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "class name is required" }).code).toBe("validation");
     expect(toFriendlyError({ message: "cannot deactivate the last active branch" }).code).toBe(
       "validation",
     );
@@ -74,6 +81,19 @@ describe("toFriendlyError", () => {
       "validation",
     );
     expect(toFriendlyError({ message: "a lead or member is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "insufficient stock" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "purchase is already received" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "received purchases cannot be cancelled" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "sale is already void" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "discount exceeds the sale total" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "expense category is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "expense amount must be greater than zero" }).code).toBe(
+      "validation",
+    );
+    expect(toFriendlyError({ message: "income category is required" }).code).toBe("validation");
+    expect(toFriendlyError({ message: "income amount must be greater than zero" }).code).toBe(
+      "validation",
+    );
     expect(toFriendlyError({ message: "convert the lead to create a member" }).message).toBe(
       "convert the lead to create a member",
     );

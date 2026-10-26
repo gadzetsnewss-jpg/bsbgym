@@ -1,6 +1,6 @@
 -- =============================================================================
 -- BSB FitForge - COMBINE.sql
--- Pending production migrations 20261002000024 through 20261008000029
+-- Pending production migrations 20261002000024 through 20261024000034
 -- Run once in the Supabase SQL editor. Additive only. Safe to re-run
 -- create or replace / add column if not exists statements.
 -- =============================================================================
@@ -1882,3 +1882,2205 @@ $$;
 
 grant execute on function public.upsert_branch_setting(uuid, uuid, text, jsonb) to authenticated;
 
+
+
+-- #############################################################################
+-- FILE: supabase/migrations/20261013000030_pos_inventory_purchases.sql
+-- #############################################################################
+
+-- =============================================================================
+-- BSB FitForge - Phase 7: POS, inventory and purchases write path
+-- =============================================================================
+-- Additive SECURITY DEFINER RPCs for existing commerce tables:
+--   products, pos_sales, pos_sale_items, purchases, purchase_items,
+--   stock_movements, suppliers
+--
+-- Tables stay select-only RLS. organization_id is derived server-side.
+-- Soft status only. No hard deletes of sales, purchases or movements.
+-- Stock changes only through stock_movements (except product opening qty).
+-- =============================================================================
+
+-- Composite branch FKs already exist. Add simple branch_id FKs so PostgREST
+-- can embed branches on POS, purchase and stock-movement reads.
+alter table public.pos_sales drop constraint if exists pos_sales_branch_id_fkey;
+alter table public.pos_sales add constraint pos_sales_branch_id_fkey
+  foreign key (branch_id) references public.branches(id);
+
+alter table public.purchases drop constraint if exists purchases_branch_id_fkey;
+alter table public.purchases add constraint purchases_branch_id_fkey
+  foreign key (branch_id) references public.branches(id);
+
+alter table public.stock_movements drop constraint if exists stock_movements_branch_id_fkey;
+alter table public.stock_movements add constraint stock_movements_branch_id_fkey
+  foreign key (branch_id) references public.branches(id);
+
+-- ---------------------------------------------------------------------------
+-- Product update no longer overwrites on-hand stock. Opening qty stays on
+-- create_product. Later qty changes go through purchases / POS / void.
+-- Signature is unchanged.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.update_product(
+  p_product_id uuid,
+  p_name text,
+  p_sku text,
+  p_description text,
+  p_category text,
+  p_unit text,
+  p_cost_price numeric,
+  p_sale_price numeric,
+  p_tax_rate numeric,
+  p_track_stock boolean,
+  p_stock_quantity numeric,
+  p_reorder_level numeric,
+  p_is_active boolean
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_name text;
+  v_sku text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  select organization_id into v_org_id
+  from public.products where id = p_product_id;
+  if v_org_id is null then
+    raise exception 'product not found';
+  end if;
+  if not public.user_has_permission(v_org_id, 'inventory.manage') then
+    raise exception 'insufficient privileges';
+  end if;
+
+  v_name := trim(p_name);
+  if v_name is null or v_name = '' then
+    raise exception 'product name is required';
+  end if;
+  v_sku := nullif(upper(trim(p_sku)), '');
+  if v_sku is not null and exists (
+    select 1 from public.products p
+    where p.organization_id = v_org_id and p.sku = v_sku and p.id <> p_product_id
+  ) then
+    raise exception 'product sku already exists';
+  end if;
+  if coalesce(p_cost_price, 0) < 0 or coalesce(p_sale_price, 0) < 0
+     or coalesce(p_tax_rate, 0) < 0 then
+    raise exception 'amounts cannot be negative';
+  end if;
+  if coalesce(p_reorder_level, 0) < 0 then
+    raise exception 'stock values cannot be negative';
+  end if;
+
+  update public.products set
+    name = v_name,
+    sku = v_sku,
+    description = nullif(trim(p_description), ''),
+    category = nullif(trim(p_category), ''),
+    unit = coalesce(nullif(trim(p_unit), ''), 'pcs'),
+    cost_price = coalesce(p_cost_price, 0),
+    sale_price = coalesce(p_sale_price, 0),
+    tax_rate = coalesce(p_tax_rate, 0),
+    track_stock = coalesce(p_track_stock, true),
+    reorder_level = coalesce(p_reorder_level, 0),
+    is_active = coalesce(p_is_active, true)
+  where id = p_product_id;
+end;
+$$;
+
+grant execute on function public.update_product(
+  uuid, text, text, text, text, text, numeric, numeric, numeric, boolean, numeric, numeric, boolean
+) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Internal stock helper. Not granted to clients.
+-- p_quantity is signed: positive increases on-hand, negative decreases.
+-- ---------------------------------------------------------------------------
+
+create or replace function public.apply_stock_movement(
+  p_org_id uuid,
+  p_branch_id uuid,
+  p_product_id uuid,
+  p_quantity numeric,
+  p_movement_type text,
+  p_reference_type text,
+  p_reference_id uuid,
+  p_notes text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_product public.products%rowtype;
+  v_next numeric;
+begin
+  if p_movement_type not in ('purchase', 'sale', 'adjustment', 'return', 'consumption', 'transfer') then
+    raise exception 'movement type is invalid';
+  end if;
+  if p_quantity = 0 then
+    raise exception 'quantity must not be zero';
+  end if;
+
+  select * into v_product
+  from public.products
+  where id = p_product_id
+  for update;
+  if v_product.id is null or v_product.organization_id is distinct from p_org_id then
+    raise exception 'product not found';
+  end if;
+  if not v_product.track_stock then
+    return;
+  end if;
+
+  v_next := public.round_money(coalesce(v_product.stock_quantity, 0) + p_quantity);
+  if v_next < 0 then
+    raise exception 'insufficient stock';
+  end if;
+
+  update public.products
+  set stock_quantity = v_next
+  where id = p_product_id;
+
+  insert into public.stock_movements (
+    organization_id, branch_id, product_id, movement_type, quantity,
+    reference_type, reference_id, notes, created_by
+  )
+  values (
+    p_org_id, p_branch_id, p_product_id, p_movement_type, p_quantity,
+    nullif(trim(p_reference_type), ''), p_reference_id, nullif(trim(p_notes), ''),
+    auth.uid()
+  );
+end;
+$$;
+
+revoke all on function public.apply_stock_movement(
+  uuid, uuid, uuid, numeric, text, text, uuid, text
+) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Purchases
+-- ---------------------------------------------------------------------------
+
+create or replace function public.create_purchase(
+  p_org_id uuid,
+  p_branch_id uuid,
+  p_supplier_id uuid,
+  p_order_date date,
+  p_notes text,
+  p_items jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_number text;
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_product_id uuid;
+  v_qty numeric;
+  v_cost numeric;
+  v_line numeric;
+  v_rate numeric;
+  v_tax numeric;
+  v_sub numeric := 0;
+  v_tax_sum numeric := 0;
+  v_desc text;
+begin
+  perform public.require_org_permission(p_org_id, 'inventory.manage');
+  perform public.require_branch_in_org(p_org_id, p_branch_id);
+
+  if p_supplier_id is null or not exists (
+    select 1 from public.suppliers s
+    where s.id = p_supplier_id and s.organization_id = p_org_id
+  ) then
+    raise exception 'supplier not found';
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) is distinct from 'array'
+     or jsonb_array_length(p_items) = 0 then
+    raise exception 'at least one purchase item is required';
+  end if;
+
+  v_number := public.next_document_number(p_org_id, 'purchase', 'PO');
+
+  insert into public.purchases (
+    organization_id, branch_id, supplier_id, purchase_number, status,
+    order_date, notes, created_by
+  )
+  values (
+    p_org_id, p_branch_id, p_supplier_id, v_number, 'draft',
+    coalesce(p_order_date, (timezone('utc', now()))::date),
+    nullif(trim(p_notes), ''), auth.uid()
+  )
+  returning id into v_id;
+
+  for v_item in select * from jsonb_array_elements(p_items)
+  loop
+    v_product_id := nullif(trim(v_item ->> 'product_id'), '')::uuid;
+    v_qty := coalesce((v_item ->> 'quantity')::numeric, 0);
+    v_cost := coalesce((v_item ->> 'unit_cost')::numeric, 0);
+    if v_product_id is null then
+      raise exception 'product is required';
+    end if;
+    if v_qty <= 0 then
+      raise exception 'quantity must be greater than zero';
+    end if;
+    if v_cost < 0 then
+      raise exception 'amounts cannot be negative';
+    end if;
+
+    select * into v_product
+    from public.products
+    where id = v_product_id and organization_id = p_org_id;
+    if v_product.id is null then
+      raise exception 'product not found';
+    end if;
+
+    v_desc := coalesce(nullif(trim(v_item ->> 'description'), ''), v_product.name);
+    v_line := public.round_money(v_qty * v_cost);
+    v_rate := coalesce(v_product.tax_rate, 0);
+    v_tax := public.round_money(v_line * (v_rate / 100));
+
+    insert into public.purchase_items (
+      organization_id, purchase_id, product_id, description, quantity, unit_cost, line_total
+    )
+    values (
+      p_org_id, v_id, v_product_id, v_desc, v_qty, v_cost, v_line
+    );
+
+    v_sub := v_sub + v_line;
+    v_tax_sum := v_tax_sum + v_tax;
+  end loop;
+
+  update public.purchases set
+    sub_total = public.round_money(v_sub),
+    tax_total = public.round_money(v_tax_sum),
+    total = public.round_money(v_sub + v_tax_sum)
+  where id = v_id;
+
+  return v_id;
+end;
+$$;
+
+grant execute on function public.create_purchase(
+  uuid, uuid, uuid, date, text, jsonb
+) to authenticated;
+
+create or replace function public.update_purchase(
+  p_purchase_id uuid,
+  p_supplier_id uuid,
+  p_order_date date,
+  p_notes text,
+  p_items jsonb
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_purchase public.purchases%rowtype;
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_product_id uuid;
+  v_qty numeric;
+  v_cost numeric;
+  v_line numeric;
+  v_rate numeric;
+  v_tax numeric;
+  v_sub numeric := 0;
+  v_tax_sum numeric := 0;
+  v_desc text;
+begin
+  select * into v_purchase
+  from public.purchases
+  where id = p_purchase_id
+  for update;
+  if v_purchase.id is null then
+    raise exception 'purchase not found';
+  end if;
+  perform public.require_org_permission(v_purchase.organization_id, 'inventory.manage');
+  perform public.require_branch_in_org(v_purchase.organization_id, v_purchase.branch_id);
+
+  if v_purchase.status is distinct from 'draft' then
+    raise exception 'only draft purchases can be updated';
+  end if;
+
+  if p_supplier_id is null or not exists (
+    select 1 from public.suppliers s
+    where s.id = p_supplier_id and s.organization_id = v_purchase.organization_id
+  ) then
+    raise exception 'supplier not found';
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) is distinct from 'array'
+     or jsonb_array_length(p_items) = 0 then
+    raise exception 'at least one purchase item is required';
+  end if;
+
+  delete from public.purchase_items where purchase_id = p_purchase_id;
+
+  for v_item in select * from jsonb_array_elements(p_items)
+  loop
+    v_product_id := nullif(trim(v_item ->> 'product_id'), '')::uuid;
+    v_qty := coalesce((v_item ->> 'quantity')::numeric, 0);
+    v_cost := coalesce((v_item ->> 'unit_cost')::numeric, 0);
+    if v_product_id is null then
+      raise exception 'product is required';
+    end if;
+    if v_qty <= 0 then
+      raise exception 'quantity must be greater than zero';
+    end if;
+    if v_cost < 0 then
+      raise exception 'amounts cannot be negative';
+    end if;
+
+    select * into v_product
+    from public.products
+    where id = v_product_id and organization_id = v_purchase.organization_id;
+    if v_product.id is null then
+      raise exception 'product not found';
+    end if;
+
+    v_desc := coalesce(nullif(trim(v_item ->> 'description'), ''), v_product.name);
+    v_line := public.round_money(v_qty * v_cost);
+    v_rate := coalesce(v_product.tax_rate, 0);
+    v_tax := public.round_money(v_line * (v_rate / 100));
+
+    insert into public.purchase_items (
+      organization_id, purchase_id, product_id, description, quantity, unit_cost, line_total
+    )
+    values (
+      v_purchase.organization_id, p_purchase_id, v_product_id, v_desc, v_qty, v_cost, v_line
+    );
+
+    v_sub := v_sub + v_line;
+    v_tax_sum := v_tax_sum + v_tax;
+  end loop;
+
+  update public.purchases set
+    supplier_id = p_supplier_id,
+    order_date = coalesce(p_order_date, v_purchase.order_date),
+    notes = nullif(trim(p_notes), ''),
+    sub_total = public.round_money(v_sub),
+    tax_total = public.round_money(v_tax_sum),
+    total = public.round_money(v_sub + v_tax_sum)
+  where id = p_purchase_id;
+end;
+$$;
+
+grant execute on function public.update_purchase(
+  uuid, uuid, date, text, jsonb
+) to authenticated;
+
+create or replace function public.receive_purchase(p_purchase_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_purchase public.purchases%rowtype;
+  v_item public.purchase_items%rowtype;
+begin
+  select * into v_purchase
+  from public.purchases
+  where id = p_purchase_id
+  for update;
+  if v_purchase.id is null then
+    raise exception 'purchase not found';
+  end if;
+  perform public.require_org_permission(v_purchase.organization_id, 'inventory.manage');
+  perform public.require_branch_in_org(v_purchase.organization_id, v_purchase.branch_id);
+
+  if v_purchase.status = 'received' then
+    raise exception 'purchase is already received';
+  end if;
+  if v_purchase.status = 'cancelled' then
+    raise exception 'cancelled purchases cannot be received';
+  end if;
+  if v_purchase.status not in ('draft', 'ordered') then
+    raise exception 'status is invalid';
+  end if;
+  if exists (
+    select 1 from public.stock_movements m
+    where m.organization_id = v_purchase.organization_id
+      and m.reference_type = 'purchase'
+      and m.reference_id = p_purchase_id
+  ) then
+    raise exception 'purchase is already received';
+  end if;
+
+  for v_item in
+    select * from public.purchase_items where purchase_id = p_purchase_id
+  loop
+    if v_item.product_id is null then
+      continue;
+    end if;
+    perform public.apply_stock_movement(
+      v_purchase.organization_id,
+      v_purchase.branch_id,
+      v_item.product_id,
+      v_item.quantity,
+      'purchase',
+      'purchase',
+      p_purchase_id,
+      v_purchase.purchase_number
+    );
+  end loop;
+
+  update public.purchases set
+    status = 'received',
+    received_date = (timezone('utc', now()))::date
+  where id = p_purchase_id;
+end;
+$$;
+
+grant execute on function public.receive_purchase(uuid) to authenticated;
+
+create or replace function public.cancel_purchase(p_purchase_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_purchase public.purchases%rowtype;
+begin
+  select * into v_purchase
+  from public.purchases
+  where id = p_purchase_id
+  for update;
+  if v_purchase.id is null then
+    raise exception 'purchase not found';
+  end if;
+  perform public.require_org_permission(v_purchase.organization_id, 'inventory.manage');
+  perform public.require_branch_in_org(v_purchase.organization_id, v_purchase.branch_id);
+
+  if v_purchase.status = 'received' then
+    raise exception 'received purchases cannot be cancelled';
+  end if;
+  if v_purchase.status = 'cancelled' then
+    raise exception 'purchase is already cancelled';
+  end if;
+
+  update public.purchases
+  set status = 'cancelled'
+  where id = p_purchase_id;
+end;
+$$;
+
+grant execute on function public.cancel_purchase(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- POS sales
+-- ---------------------------------------------------------------------------
+
+create or replace function public.create_pos_sale(
+  p_org_id uuid,
+  p_branch_id uuid,
+  p_member_id uuid,
+  p_payment_method text,
+  p_discount numeric,
+  p_tax_mode text,
+  p_notes text,
+  p_items jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_number text;
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_product_id uuid;
+  v_qty numeric;
+  v_price numeric;
+  v_rate numeric;
+  v_gross numeric;
+  v_taxable numeric;
+  v_gst numeric;
+  v_line numeric;
+  v_sub numeric := 0;
+  v_tax_sum numeric := 0;
+  v_total numeric := 0;
+  v_discount numeric;
+  v_mode text;
+  v_method text;
+  v_desc text;
+begin
+  perform public.require_org_permission(p_org_id, 'pos.create');
+  perform public.require_branch_in_org(p_org_id, p_branch_id);
+
+  if p_member_id is not null and not exists (
+    select 1 from public.gym_members m
+    where m.id = p_member_id and m.organization_id = p_org_id
+  ) then
+    raise exception 'member not found';
+  end if;
+
+  if p_items is null or jsonb_typeof(p_items) is distinct from 'array'
+     or jsonb_array_length(p_items) = 0 then
+    raise exception 'at least one sale item is required';
+  end if;
+
+  v_method := coalesce(nullif(trim(p_payment_method), ''), 'cash');
+  if v_method not in ('cash', 'card', 'upi', 'netbanking', 'wallet', 'other') then
+    raise exception 'payment method is invalid';
+  end if;
+
+  v_mode := coalesce(nullif(p_tax_mode, ''), 'exclusive');
+  if v_mode not in ('exclusive', 'inclusive') then
+    raise exception 'tax mode is invalid';
+  end if;
+
+  v_discount := public.round_money(coalesce(p_discount, 0));
+  if v_discount < 0 then
+    raise exception 'amounts cannot be negative';
+  end if;
+
+  v_number := public.next_document_number(p_org_id, 'pos_sale', 'POS');
+
+  insert into public.pos_sales (
+    organization_id, branch_id, member_id, sale_number, status,
+    payment_method, notes, created_by
+  )
+  values (
+    p_org_id, p_branch_id, p_member_id, v_number, 'completed',
+    v_method, nullif(trim(p_notes), ''), auth.uid()
+  )
+  returning id into v_id;
+
+  for v_item in select * from jsonb_array_elements(p_items)
+  loop
+    v_product_id := nullif(trim(v_item ->> 'product_id'), '')::uuid;
+    v_qty := coalesce((v_item ->> 'quantity')::numeric, 0);
+    if v_product_id is null then
+      raise exception 'product is required';
+    end if;
+    if v_qty <= 0 then
+      raise exception 'quantity must be greater than zero';
+    end if;
+
+    select * into v_product
+    from public.products
+    where id = v_product_id and organization_id = p_org_id
+    for update;
+    if v_product.id is null then
+      raise exception 'product not found';
+    end if;
+    if not v_product.is_active then
+      raise exception 'product is not active';
+    end if;
+
+    v_price := coalesce(v_product.sale_price, 0);
+    v_rate := coalesce(v_product.tax_rate, 0);
+    v_desc := v_product.name;
+    if v_price < 0 or v_rate < 0 then
+      raise exception 'amounts cannot be negative';
+    end if;
+
+    v_gross := public.round_money(v_qty * v_price);
+    if v_mode = 'inclusive' and v_rate > 0 then
+      v_taxable := public.round_money(v_gross / (1 + v_rate / 100));
+      v_gst := public.round_money(v_gross - v_taxable);
+      v_line := v_gross;
+    else
+      v_taxable := v_gross;
+      v_gst := public.round_money(v_taxable * (v_rate / 100));
+      v_line := public.round_money(v_taxable + v_gst);
+    end if;
+
+    insert into public.pos_sale_items (
+      organization_id, sale_id, product_id, description, quantity, unit_price, tax_rate, line_total
+    )
+    values (
+      p_org_id, v_id, v_product_id, v_desc, v_qty, v_price, v_rate, v_line
+    );
+
+    perform public.apply_stock_movement(
+      p_org_id,
+      p_branch_id,
+      v_product_id,
+      -v_qty,
+      'sale',
+      'pos_sale',
+      v_id,
+      v_number
+    );
+
+    v_sub := v_sub + v_gross;
+    v_tax_sum := v_tax_sum + v_gst;
+    v_total := v_total + v_line;
+  end loop;
+
+  if v_discount > v_total then
+    raise exception 'discount exceeds the sale total';
+  end if;
+  v_total := greatest(public.round_money(v_total - v_discount), 0);
+
+  update public.pos_sales set
+    sub_total = public.round_money(v_sub),
+    discount = v_discount,
+    tax_total = public.round_money(v_tax_sum),
+    total = v_total
+  where id = v_id;
+
+  return v_id;
+end;
+$$;
+
+grant execute on function public.create_pos_sale(
+  uuid, uuid, uuid, text, numeric, text, text, jsonb
+) to authenticated;
+
+create or replace function public.void_pos_sale(p_sale_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_sale public.pos_sales%rowtype;
+  v_item public.pos_sale_items%rowtype;
+begin
+  select * into v_sale
+  from public.pos_sales
+  where id = p_sale_id
+  for update;
+  if v_sale.id is null then
+    raise exception 'sale not found';
+  end if;
+  perform public.require_org_permission(v_sale.organization_id, 'pos.create');
+  perform public.require_branch_in_org(v_sale.organization_id, v_sale.branch_id);
+
+  if v_sale.status = 'void' then
+    raise exception 'sale is already void';
+  end if;
+  if v_sale.status is distinct from 'completed' then
+    raise exception 'status is invalid';
+  end if;
+  if exists (
+    select 1 from public.stock_movements m
+    where m.organization_id = v_sale.organization_id
+      and m.reference_type = 'pos_sale_void'
+      and m.reference_id = p_sale_id
+  ) then
+    raise exception 'sale is already void';
+  end if;
+
+  for v_item in
+    select * from public.pos_sale_items where sale_id = p_sale_id
+  loop
+    if v_item.product_id is null then
+      continue;
+    end if;
+    perform public.apply_stock_movement(
+      v_sale.organization_id,
+      v_sale.branch_id,
+      v_item.product_id,
+      v_item.quantity,
+      'return',
+      'pos_sale_void',
+      p_sale_id,
+      v_sale.sale_number
+    );
+  end loop;
+
+  update public.pos_sales
+  set status = 'void'
+  where id = p_sale_id;
+end;
+$$;
+
+grant execute on function public.void_pos_sale(uuid) to authenticated;
+
+
+-- #############################################################################
+-- FILE: supabase/migrations/20261014000031_finance_expenses_income_rpcs.sql
+-- #############################################################################
+
+-- Phase 8: Expenses + other income write path.
+--
+-- Additive only. The existing `expenses` and `income_entries` tables (created
+-- in 20260914000011_phase_3_2_commerce_crm.sql) keep their SELECT-only RLS
+-- policies; every write goes through these SECURITY DEFINER RPCs so the
+-- organization and branch scope is derived from the row / re-checked server
+-- side. No new tables, columns, statuses or accounting rules.
+--
+-- Permission model: reading is guarded by the existing RLS SELECT policies
+-- (`finance.view` route gate + org/branch membership), writing requires
+-- `finance.manage` (owner, admin, accountant by default).
+--
+-- Both tables are append/update-only here: no RPC deletes financial records.
+
+-- ---------------------------------------------------------------------------
+-- Expenses
+-- ---------------------------------------------------------------------------
+
+create or replace function public.create_expense(
+  p_org_id uuid,
+  p_branch_id uuid,
+  p_category text,
+  p_description text,
+  p_amount numeric,
+  p_expense_date date,
+  p_payment_method text,
+  p_status text,
+  p_reference text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_category text;
+  v_method text;
+  v_status text;
+begin
+  perform public.require_org_permission(p_org_id, 'finance.manage');
+  perform public.require_branch_in_org(p_org_id, p_branch_id);
+
+  v_category := nullif(trim(p_category), '');
+  if v_category is null then
+    raise exception 'expense category is required';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'expense amount must be greater than zero';
+  end if;
+
+  v_method := coalesce(nullif(trim(p_payment_method), ''), 'cash');
+  if v_method not in ('cash', 'card', 'upi', 'netbanking', 'wallet', 'cheque', 'bank_transfer', 'other') then
+    raise exception 'payment method is invalid';
+  end if;
+
+  v_status := coalesce(nullif(trim(p_status), ''), 'paid');
+  if v_status not in ('pending', 'paid') then
+    raise exception 'expense status is invalid';
+  end if;
+
+  insert into public.expenses (
+    organization_id, branch_id, category, description, amount, expense_date,
+    payment_method, status, reference, created_by
+  )
+  values (
+    p_org_id, p_branch_id, v_category, nullif(trim(p_description), ''),
+    public.round_money(p_amount),
+    coalesce(p_expense_date, (timezone('utc', now()))::date),
+    v_method, v_status, nullif(trim(p_reference), ''), auth.uid()
+  )
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+grant execute on function public.create_expense(
+  uuid, uuid, text, text, numeric, date, text, text, text
+) to authenticated;
+
+create or replace function public.update_expense(
+  p_expense_id uuid,
+  p_branch_id uuid,
+  p_category text,
+  p_description text,
+  p_amount numeric,
+  p_expense_date date,
+  p_payment_method text,
+  p_status text,
+  p_reference text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_expense public.expenses%rowtype;
+  v_category text;
+  v_method text;
+  v_status text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_expense from public.expenses where id = p_expense_id;
+  if v_expense.id is null then
+    raise exception 'expense not found';
+  end if;
+
+  perform public.require_org_permission(v_expense.organization_id, 'finance.manage');
+  perform public.require_branch_in_org(v_expense.organization_id, coalesce(p_branch_id, v_expense.branch_id));
+
+  v_category := nullif(trim(p_category), '');
+  if v_category is null then
+    raise exception 'expense category is required';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'expense amount must be greater than zero';
+  end if;
+
+  v_method := coalesce(nullif(trim(p_payment_method), ''), v_expense.payment_method);
+  if v_method not in ('cash', 'card', 'upi', 'netbanking', 'wallet', 'cheque', 'bank_transfer', 'other') then
+    raise exception 'payment method is invalid';
+  end if;
+
+  v_status := coalesce(nullif(trim(p_status), ''), v_expense.status);
+  if v_status not in ('pending', 'paid') then
+    raise exception 'expense status is invalid';
+  end if;
+
+  update public.expenses set
+    branch_id = coalesce(p_branch_id, branch_id),
+    category = v_category,
+    description = nullif(trim(p_description), ''),
+    amount = public.round_money(p_amount),
+    expense_date = coalesce(p_expense_date, expense_date),
+    payment_method = v_method,
+    status = v_status,
+    reference = nullif(trim(p_reference), '')
+  where id = p_expense_id;
+end;
+$$;
+
+grant execute on function public.update_expense(
+  uuid, uuid, text, text, numeric, date, text, text, text
+) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Other income (manual receipts only - never a payment duplicate)
+-- ---------------------------------------------------------------------------
+
+create or replace function public.create_income_entry(
+  p_org_id uuid,
+  p_branch_id uuid,
+  p_category text,
+  p_description text,
+  p_amount numeric,
+  p_income_date date,
+  p_payment_method text,
+  p_reference text
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_id uuid;
+  v_category text;
+  v_method text;
+begin
+  perform public.require_org_permission(p_org_id, 'finance.manage');
+  perform public.require_branch_in_org(p_org_id, p_branch_id);
+
+  v_category := nullif(trim(p_category), '');
+  if v_category is null then
+    raise exception 'income category is required';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'income amount must be greater than zero';
+  end if;
+
+  v_method := coalesce(nullif(trim(p_payment_method), ''), 'cash');
+  if v_method not in ('cash', 'card', 'upi', 'netbanking', 'wallet', 'cheque', 'bank_transfer', 'other') then
+    raise exception 'payment method is invalid';
+  end if;
+
+  insert into public.income_entries (
+    organization_id, branch_id, category, description, amount, income_date,
+    payment_method, reference, created_by
+  )
+  values (
+    p_org_id, p_branch_id, v_category, nullif(trim(p_description), ''),
+    public.round_money(p_amount),
+    coalesce(p_income_date, (timezone('utc', now()))::date),
+    v_method, nullif(trim(p_reference), ''), auth.uid()
+  )
+  returning id into v_id;
+
+  return v_id;
+end;
+$$;
+
+grant execute on function public.create_income_entry(
+  uuid, uuid, text, text, numeric, date, text, text
+) to authenticated;
+
+create or replace function public.update_income_entry(
+  p_income_entry_id uuid,
+  p_branch_id uuid,
+  p_category text,
+  p_description text,
+  p_amount numeric,
+  p_income_date date,
+  p_payment_method text,
+  p_reference text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_entry public.income_entries%rowtype;
+  v_category text;
+  v_method text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_entry from public.income_entries where id = p_income_entry_id;
+  if v_entry.id is null then
+    raise exception 'income entry not found';
+  end if;
+
+  perform public.require_org_permission(v_entry.organization_id, 'finance.manage');
+  perform public.require_branch_in_org(v_entry.organization_id, coalesce(p_branch_id, v_entry.branch_id));
+
+  v_category := nullif(trim(p_category), '');
+  if v_category is null then
+    raise exception 'income category is required';
+  end if;
+  if p_amount is null or p_amount <= 0 then
+    raise exception 'income amount must be greater than zero';
+  end if;
+
+  v_method := coalesce(nullif(trim(p_payment_method), ''), v_entry.payment_method);
+  if v_method not in ('cash', 'card', 'upi', 'netbanking', 'wallet', 'cheque', 'bank_transfer', 'other') then
+    raise exception 'payment method is invalid';
+  end if;
+
+  update public.income_entries set
+    branch_id = coalesce(p_branch_id, branch_id),
+    category = v_category,
+    description = nullif(trim(p_description), ''),
+    amount = public.round_money(p_amount),
+    income_date = coalesce(p_income_date, income_date),
+    payment_method = v_method,
+    reference = nullif(trim(p_reference), '')
+  where id = p_income_entry_id;
+end;
+$$;
+
+grant execute on function public.update_income_entry(
+  uuid, uuid, text, text, numeric, date, text, text
+) to authenticated;
+
+
+-- #############################################################################
+-- FILE: supabase/migrations/20261020000032_notification_read_rpcs.sql
+-- #############################################################################
+
+-- Phase 9: In-app notification read-state writes.
+--
+-- Additive only. The existing `notifications` table (created in
+-- 20260914000011_phase_3_2_commerce_crm.sql) stays SELECT-only at RLS;
+-- these SECURITY DEFINER RPCs are the only write path. They set `is_read`
+-- on the caller's own rows and never touch finance, memberships, billing,
+-- or any other table. No new columns, types, or scheduled jobs.
+
+create or replace function public.mark_notification_read(p_notification_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  if p_notification_id is null then
+    raise exception 'notification not found';
+  end if;
+
+  update public.notifications
+     set is_read = true
+   where id = p_notification_id
+     and recipient_id = auth.uid();
+end;
+$$;
+
+grant execute on function public.mark_notification_read(uuid) to authenticated;
+
+create or replace function public.mark_all_notifications_read(p_org_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  if p_org_id is null or not public.is_org_member(p_org_id) then
+    raise exception 'not an organization member';
+  end if;
+
+  update public.notifications
+     set is_read = true
+   where organization_id = p_org_id
+     and recipient_id = auth.uid()
+     and is_read = false;
+end;
+$$;
+
+grant execute on function public.mark_all_notifications_read(uuid) to authenticated;
+
+
+-- #############################################################################
+-- FILE: supabase/migrations/20261023000033_phase_10_hardening.sql
+-- #############################################################################
+
+-- =============================================================================
+-- BSB FitForge - Phase 10: production hardening (additive)
+-- =============================================================================
+-- Confirmed gaps from the in-repo audit. No new tables, columns, statuses,
+-- accounting rules, or product features. Existing RPCs remain the write path.
+--
+-- 1. Drop leftover direct write policies on organizations, branches, settings,
+--    and subscriptions so REST cannot bypass SECURITY DEFINER RPCs.
+-- 2. Protect privileged profile columns (status, org_id, branch_id, email,
+--    username) from client UPDATE even though RLS allows own-row updates.
+-- 3. Tighten child-table SELECT policies so line items inherit parent branch
+--    access instead of org-wide visibility.
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1. Settings / org / branch / subscription writes: RPC-only
+-- ---------------------------------------------------------------------------
+-- Phase 1.1 added admin/owner write policies. Phase 1.3 later introduced
+-- SECURITY DEFINER RPCs as the application write path but left the policies
+-- in place, so PostgREST could still skip validation (GSTIN, last-active
+-- branch, immutable codes, setting-key format).
+
+drop policy if exists "org owner can update their organization" on public.organizations;
+
+drop policy if exists "org admins can create branches" on public.branches;
+drop policy if exists "org admins can update branches" on public.branches;
+
+drop policy if exists "org admins can manage organization settings" on public.organization_settings;
+drop policy if exists "org admins can update organization settings" on public.organization_settings;
+drop policy if exists "org admins can delete organization settings" on public.organization_settings;
+
+drop policy if exists "org admins can manage branch settings" on public.branch_settings;
+drop policy if exists "org admins can update branch settings" on public.branch_settings;
+drop policy if exists "org admins can delete branch settings" on public.branch_settings;
+
+drop policy if exists "org admins can manage subscriptions" on public.organization_subscriptions;
+drop policy if exists "org admins can update subscriptions" on public.organization_subscriptions;
+drop policy if exists "org admins can delete subscriptions" on public.organization_subscriptions;
+
+-- ---------------------------------------------------------------------------
+-- 2. Profile privileged-column protection
+-- ---------------------------------------------------------------------------
+-- Own-row UPDATE is still allowed (first_name, last_name, phone, avatar_url,
+-- preferences, contact_number). status / org_id / branch_id / email / username
+-- are membership or auth fields and must not be writable by the client.
+
+create or replace function public.protect_profile_username()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if tg_op = 'UPDATE' then
+    if old.username is not null and new.username is distinct from old.username then
+      raise exception 'username cannot be changed';
+    end if;
+    if new.status is distinct from old.status then
+      raise exception 'profile status cannot be changed';
+    end if;
+    if new.org_id is distinct from old.org_id then
+      raise exception 'profile organization cannot be changed';
+    end if;
+    if new.branch_id is distinct from old.branch_id then
+      raise exception 'profile branch cannot be changed';
+    end if;
+    if new.email is distinct from old.email then
+      raise exception 'profile email cannot be changed';
+    end if;
+  end if;
+  if new.username is not null then
+    new.username := public.normalize_username(new.username);
+  end if;
+  if new.contact_number is not null then
+    new.contact_number := public.normalize_contact_number(new.contact_number);
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.protect_profile_username() from public, anon, authenticated;
+
+drop trigger if exists protect_profile_username on public.profiles;
+create trigger protect_profile_username
+  before insert or update on public.profiles
+  for each row execute function public.protect_profile_username();
+
+-- ---------------------------------------------------------------------------
+-- 3. Child-table SELECT: inherit parent branch access
+-- ---------------------------------------------------------------------------
+-- Parent rows (invoices, pos_sales, purchases, credit_notes, memberships,
+-- class_sessions) already require user_has_branch_access. Child rows only
+-- checked is_org_member, so a branch-restricted staff member could read
+-- another branch's line items by id.
+--
+-- DROP POLICY ... ON <table> still requires the table. Skip children that
+-- were never created on this database (live is missing credit_note_items).
+
+do $$
+begin
+  if to_regclass('public.invoice_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view invoice items" on public.invoice_items;
+    create policy "org members can view invoice items"
+      on public.invoice_items for select
+      using (
+        exists (
+          select 1
+          from public.invoices parent
+          where parent.id = invoice_id
+            and parent.organization_id = invoice_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.installments') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view installments" on public.installments;
+    create policy "org members can view installments"
+      on public.installments for select
+      using (
+        exists (
+          select 1
+          from public.invoices parent
+          where parent.id = invoice_id
+            and parent.organization_id = installments.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.pos_sale_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view pos sale items" on public.pos_sale_items;
+    create policy "org members can view pos sale items"
+      on public.pos_sale_items for select
+      using (
+        exists (
+          select 1
+          from public.pos_sales parent
+          where parent.id = sale_id
+            and parent.organization_id = pos_sale_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.purchase_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view purchase items" on public.purchase_items;
+    create policy "org members can view purchase items"
+      on public.purchase_items for select
+      using (
+        exists (
+          select 1
+          from public.purchases parent
+          where parent.id = purchase_id
+            and parent.organization_id = purchase_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.credit_note_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view credit note items" on public.credit_note_items;
+    create policy "org members can view credit note items"
+      on public.credit_note_items for select
+      using (
+        exists (
+          select 1
+          from public.credit_notes parent
+          where parent.id = credit_note_id
+            and parent.organization_id = credit_note_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.membership_freezes') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view membership freezes" on public.membership_freezes;
+    create policy "org members can view membership freezes"
+      on public.membership_freezes for select
+      using (
+        exists (
+          select 1
+          from public.memberships parent
+          where parent.id = membership_id
+            and parent.organization_id = membership_freezes.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.class_bookings') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view class bookings" on public.class_bookings;
+    create policy "org members can view class bookings"
+      on public.class_bookings for select
+      using (
+        exists (
+          select 1
+          from public.class_sessions parent
+          where parent.id = class_session_id
+            and parent.organization_id = class_bookings.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
+
+-- #############################################################################
+-- FILE: supabase/migrations/20261024000034_trainer_member_user_links.sql
+-- #############################################################################
+
+-- =============================================================================
+-- BSB FitForge - Trainer / member login links (additive)
+-- =============================================================================
+-- Connects invited logins to catalog rows without matching email/name/phone.
+--
+-- 1. user_id on trainers and gym_members (nullable, unique per org).
+-- 2. Seed a non-system `member` role so gym customers can sign in.
+-- 3. SECURITY DEFINER link/unlink RPCs (RPC-only writes).
+-- 4. Scoped SELECT so trainer/member roles only see their own rows.
+-- 5. Linked trainers may set PT status on their own sessions.
+-- =============================================================================
+
+-- ---------------------------------------------------------------------------
+-- 1. Columns
+-- ---------------------------------------------------------------------------
+
+alter table public.trainers
+  add column if not exists user_id uuid references auth.users(id) on delete set null;
+
+alter table public.gym_members
+  add column if not exists user_id uuid references auth.users(id) on delete set null;
+
+create unique index if not exists trainers_org_user_unique
+  on public.trainers(organization_id, user_id)
+  where user_id is not null;
+
+create unique index if not exists gym_members_org_user_unique
+  on public.gym_members(organization_id, user_id)
+  where user_id is not null;
+
+create index if not exists trainers_user_idx on public.trainers(user_id);
+create index if not exists gym_members_user_idx on public.gym_members(user_id);
+
+-- ---------------------------------------------------------------------------
+-- 2. Helpers (SECURITY DEFINER so RLS policies do not recurse)
+-- ---------------------------------------------------------------------------
+
+create or replace function public.current_org_role_slug(p_org_id uuid)
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select r.slug
+  from public.organization_members m
+  join public.roles r on r.id = m.role_id
+  where m.organization_id = p_org_id
+    and m.user_id = auth.uid()
+    and m.status = 'active'
+  limit 1
+$$;
+
+create or replace function public.linked_trainer_id(p_org_id uuid)
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select t.id
+  from public.trainers t
+  where t.organization_id = p_org_id
+    and t.user_id = auth.uid()
+  limit 1
+$$;
+
+create or replace function public.linked_gym_member_id(p_org_id uuid)
+returns uuid
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select g.id
+  from public.gym_members g
+  where g.organization_id = p_org_id
+    and g.user_id = auth.uid()
+  limit 1
+$$;
+
+create or replace function public.can_view_member_data(p_org_id uuid, p_member_id uuid)
+returns boolean
+language plpgsql
+stable
+security definer
+set search_path = public
+as $$
+declare
+  v_slug text;
+  v_trainer uuid;
+begin
+  if auth.uid() is null or p_org_id is null or p_member_id is null then
+    return false;
+  end if;
+  if not public.is_org_member(p_org_id) then
+    return false;
+  end if;
+
+  v_slug := public.current_org_role_slug(p_org_id);
+  if v_slug is null then
+    return false;
+  end if;
+
+  if v_slug = 'member' then
+    return exists (
+      select 1
+      from public.gym_members g
+      where g.id = p_member_id
+        and g.organization_id = p_org_id
+        and g.user_id = auth.uid()
+    );
+  end if;
+
+  if v_slug = 'trainer' then
+    v_trainer := public.linked_trainer_id(p_org_id);
+    if v_trainer is null then
+      return false;
+    end if;
+    return exists (
+      select 1
+      from public.trainer_assignments a
+      where a.organization_id = p_org_id
+        and a.member_id = p_member_id
+        and a.trainer_id = v_trainer
+        and a.status = 'active'
+    );
+  end if;
+
+  return true;
+end;
+$$;
+
+revoke all on function public.current_org_role_slug(uuid) from public, anon, authenticated;
+revoke all on function public.linked_trainer_id(uuid) from public, anon, authenticated;
+revoke all on function public.linked_gym_member_id(uuid) from public, anon, authenticated;
+revoke all on function public.can_view_member_data(uuid, uuid) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 3. Scoped SELECT policies
+-- ---------------------------------------------------------------------------
+
+drop policy if exists "org members can view gym members in authorized branches" on public.gym_members;
+create policy "org members can view gym members in authorized branches"
+  on public.gym_members for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, id)
+    and (
+      user_id = auth.uid()
+      or public.user_has_branch_access(organization_id, branch_id)
+    )
+  );
+
+drop policy if exists "org members can view trainers" on public.trainers;
+create policy "org members can view trainers"
+  on public.trainers for select
+  using (
+    public.is_org_member(organization_id)
+    and (
+      user_id = auth.uid()
+      or (
+        public.current_org_role_slug(organization_id) = 'member'
+        and id = (
+          select g.assigned_trainer_id
+          from public.gym_members g
+          where g.organization_id = trainers.organization_id
+            and g.user_id = auth.uid()
+          limit 1
+        )
+      )
+      or (
+        public.current_org_role_slug(organization_id) not in ('trainer', 'member')
+        and (branch_id is null or public.user_has_branch_access(organization_id, branch_id))
+      )
+    )
+  );
+
+drop policy if exists "org members can view trainer assignments" on public.trainer_assignments;
+create policy "org members can view trainer assignments"
+  on public.trainer_assignments for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+  );
+
+drop policy if exists "org members can view pt sessions" on public.pt_sessions;
+create policy "org members can view pt sessions"
+  on public.pt_sessions for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+    and (
+      public.current_org_role_slug(organization_id) = 'member'
+      or public.user_has_branch_access(organization_id, branch_id)
+    )
+  );
+
+drop policy if exists "org members can view attendance" on public.attendance_records;
+create policy "org members can view attendance"
+  on public.attendance_records for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+    and (
+      public.current_org_role_slug(organization_id) = 'member'
+      or public.user_has_branch_access(organization_id, branch_id)
+    )
+  );
+
+drop policy if exists "org members can view memberships" on public.memberships;
+create policy "org members can view memberships"
+  on public.memberships for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+    and (
+      public.current_org_role_slug(organization_id) = 'member'
+      or public.user_has_branch_access(organization_id, branch_id)
+    )
+  );
+
+drop policy if exists "org members can view workout plans" on public.workout_plans;
+create policy "org members can view workout plans"
+  on public.workout_plans for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+  );
+
+drop policy if exists "org members can view workout plan items" on public.workout_plan_items;
+create policy "org members can view workout plan items"
+  on public.workout_plan_items for select
+  using (
+    exists (
+      select 1
+      from public.workout_plans parent
+      where parent.id = plan_id
+        and parent.organization_id = workout_plan_items.organization_id
+        and public.is_org_member(parent.organization_id)
+        and public.can_view_member_data(parent.organization_id, parent.member_id)
+    )
+  );
+
+drop policy if exists "org members can view diet plans" on public.diet_plans;
+create policy "org members can view diet plans"
+  on public.diet_plans for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+  );
+
+drop policy if exists "org members can view diet plan items" on public.diet_plan_items;
+create policy "org members can view diet plan items"
+  on public.diet_plan_items for select
+  using (
+    exists (
+      select 1
+      from public.diet_plans parent
+      where parent.id = diet_plan_id
+        and parent.organization_id = diet_plan_items.organization_id
+        and public.is_org_member(parent.organization_id)
+        and public.can_view_member_data(parent.organization_id, parent.member_id)
+    )
+  );
+
+drop policy if exists "org members can view body measurements" on public.body_measurements;
+create policy "org members can view body measurements"
+  on public.body_measurements for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+  );
+
+drop policy if exists "org members can view progress entries" on public.progress_entries;
+create policy "org members can view progress entries"
+  on public.progress_entries for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+  );
+
+-- ---------------------------------------------------------------------------
+-- 4. Member role + permission seed
+-- ---------------------------------------------------------------------------
+
+create or replace function public.seed_default_role_permissions(p_org_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_all text[] := array[
+    'dashboard.view',
+
+    'members.view', 'members.create', 'members.update', 'members.delete', 'members.export',
+
+    'memberships.view', 'memberships.create', 'memberships.update',
+    'memberships.freeze', 'memberships.extend', 'memberships.transfer',
+
+    'billing.view', 'billing.create', 'billing.edit', 'billing.refund',
+    'billing.void', 'billing.export',
+
+    'gst.view', 'gst.manage',
+
+    'payments.view', 'payments.create', 'payments.refund',
+
+    'attendance.view', 'attendance.create', 'attendance.manage',
+
+    'trainers.view', 'trainers.create', 'trainers.edit', 'trainers.assign', 'trainers.reassign',
+
+    'fitness.view', 'fitness.manage',
+
+    'classes.view', 'classes.manage', 'bookings.manage',
+
+    'pos.view', 'pos.create',
+
+    'inventory.view', 'inventory.manage',
+
+    'crm.view', 'crm.manage',
+
+    'finance.view', 'finance.manage',
+
+    'reports.view', 'reports.export',
+
+    'staff.view', 'staff.manage',
+
+    'settings.view', 'settings.manage',
+
+    'users.view', 'users.manage',
+
+    'roles.view', 'roles.manage',
+
+    'branches.view', 'branches.manage',
+
+    'organization.manage',
+
+    'invites.send'
+  ];
+begin
+  if p_org_id is null then
+    raise exception 'organization is required';
+  end if;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(v_all) as p(permission)
+  where r.organization_id = p_org_id and r.slug in ('owner', 'admin')
+    and not (r.slug = 'admin' and p.permission = 'organization.manage')
+  on conflict (role_id, permission) do nothing;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(array[
+    'dashboard.view',
+    'members.view', 'members.create', 'members.update',
+    'memberships.view', 'memberships.create', 'memberships.update',
+    'memberships.freeze', 'memberships.extend',
+    'billing.view', 'billing.create',
+    'payments.view', 'payments.create',
+    'attendance.view', 'attendance.create', 'attendance.manage',
+    'trainers.view',
+    'fitness.view', 'fitness.manage',
+    'classes.view',
+    'pos.view', 'pos.create',
+    'inventory.view', 'inventory.manage',
+    'crm.view', 'crm.manage',
+    'reports.view',
+    'settings.view',
+    'branches.view'
+  ]) as p(permission)
+  where r.organization_id = p_org_id and r.slug = 'manager'
+  on conflict (role_id, permission) do nothing;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(array[
+    'dashboard.view',
+    'members.view', 'members.create', 'members.update',
+    'memberships.view', 'memberships.create',
+    'payments.view', 'payments.create',
+    'attendance.view', 'attendance.create',
+    'fitness.view',
+    'crm.view',
+    'pos.view', 'pos.create'
+  ]) as p(permission)
+  where r.organization_id = p_org_id and r.slug = 'staff'
+  on conflict (role_id, permission) do nothing;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(array[
+    'dashboard.view',
+    'members.view', 'members.create', 'members.update',
+    'memberships.view', 'memberships.create',
+    'billing.view',
+    'payments.view', 'payments.create',
+    'attendance.view', 'attendance.create',
+    'fitness.view',
+    'classes.view',
+    'crm.view',
+    'pos.view', 'pos.create'
+  ]) as p(permission)
+  where r.organization_id = p_org_id and r.slug = 'receptionist'
+  on conflict (role_id, permission) do nothing;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(array[
+    'dashboard.view',
+    'members.view',
+    'memberships.view',
+    'attendance.view', 'attendance.create',
+    'trainers.view',
+    'fitness.view', 'fitness.manage',
+    'classes.view'
+  ]) as p(permission)
+  where r.organization_id = p_org_id and r.slug = 'trainer'
+  on conflict (role_id, permission) do nothing;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(array[
+    'dashboard.view',
+    'members.view',
+    'billing.view', 'billing.create', 'billing.edit', 'billing.refund',
+    'billing.void', 'billing.export',
+    'gst.view', 'gst.manage',
+    'payments.view', 'payments.create', 'payments.refund',
+    'finance.view', 'finance.manage',
+    'reports.view', 'reports.export',
+    'settings.view'
+  ]) as p(permission)
+  where r.organization_id = p_org_id and r.slug = 'accountant'
+  on conflict (role_id, permission) do nothing;
+
+  insert into public.role_permissions (organization_id, role_id, permission)
+  select p_org_id, r.id, p.permission
+  from public.roles r
+  cross join unnest(array[
+    'dashboard.view',
+    'members.view',
+    'memberships.view',
+    'trainers.view'
+  ]) as p(permission)
+  where r.organization_id = p_org_id and r.slug = 'member'
+  on conflict (role_id, permission) do nothing;
+end;
+$$;
+
+revoke all on function public.seed_default_role_permissions(uuid) from public, anon, authenticated;
+
+insert into public.roles (organization_id, name, slug, description, is_system, is_active)
+select o.id, 'Member', 'member', 'Gym customer with access to their own training', false, true
+from public.organizations o
+where not exists (
+  select 1 from public.roles r
+  where r.organization_id = o.id and r.slug = 'member'
+);
+
+do $$
+declare
+  v_org uuid;
+begin
+  for v_org in select id from public.organizations loop
+    perform public.seed_default_role_permissions(v_org);
+  end loop;
+end $$;
+
+create or replace function public.create_organization(
+  p_name text,
+  p_legal_name text default null,
+  p_business_type text default null,
+  p_email text default null,
+  p_phone text default null,
+  p_website text default null,
+  p_address_line1 text default null,
+  p_address_line2 text default null,
+  p_city text default null,
+  p_state text default null,
+  p_postal_code text default null,
+  p_country text default null,
+  p_tax_id text default null,
+  p_currency text default 'INR',
+  p_timezone text default 'Asia/Kolkata',
+  p_date_format text default 'DD/MM/YYYY',
+  p_logo_url text default null,
+  p_branch_name text default null,
+  p_branch_code text default null,
+  p_branch_phone text default null,
+  p_branch_email text default null,
+  p_branch_address_line1 text default null,
+  p_branch_address_line2 text default null,
+  p_branch_city text default null,
+  p_branch_state text default null,
+  p_branch_postal_code text default null,
+  p_branch_country text default null,
+  p_branch_timezone text default 'Asia/Kolkata'
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_owner_role_id uuid;
+  v_member_id uuid;
+  v_branch_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if exists (
+    select 1
+    from public.organization_members m
+    where m.user_id = auth.uid()
+      and m.status = 'active'
+  ) then
+    raise exception 'you already belong to an organization';
+  end if;
+
+  if nullif(trim(p_name), '') is null then
+    raise exception 'organization name is required';
+  end if;
+  if nullif(trim(p_branch_name), '') is null then
+    raise exception 'branch name is required';
+  end if;
+  if nullif(trim(p_branch_code), '') is null then
+    raise exception 'branch code is required';
+  end if;
+  if p_branch_code !~ '^[A-Za-z0-9_-]+$' then
+    raise exception 'branch code may only contain letters, numbers, dashes or underscores';
+  end if;
+
+  select o.id
+    into v_org_id
+  from public.organizations o
+  where o.created_by = auth.uid()
+    and not exists (
+      select 1
+      from public.organization_members m
+      where m.organization_id = o.id
+    )
+  order by o.updated_at desc
+  limit 1;
+
+  if v_org_id is not null then
+    update public.organizations
+    set
+      name = trim(p_name),
+      legal_name = nullif(trim(p_legal_name), ''),
+      business_type = nullif(trim(p_business_type), ''),
+      email = nullif(trim(p_email), ''),
+      phone = nullif(trim(p_phone), ''),
+      website = nullif(trim(p_website), ''),
+      address_line1 = nullif(trim(p_address_line1), ''),
+      address_line2 = nullif(trim(p_address_line2), ''),
+      city = nullif(trim(p_city), ''),
+      state = nullif(trim(p_state), ''),
+      postal_code = nullif(trim(p_postal_code), ''),
+      country = nullif(trim(p_country), ''),
+      tax_id = nullif(trim(p_tax_id), ''),
+      currency = coalesce(nullif(trim(p_currency), ''), currency),
+      timezone = coalesce(nullif(trim(p_timezone), ''), timezone),
+      date_format = coalesce(nullif(trim(p_date_format), ''), date_format),
+      logo_url = nullif(trim(p_logo_url), '')
+    where id = v_org_id;
+  else
+    insert into public.organizations (
+      name, legal_name, business_type, email, phone, website,
+      address_line1, address_line2, city, state, postal_code, country, tax_id,
+      currency, timezone, date_format, logo_url, status, created_by
+    )
+    values (
+      trim(p_name),
+      nullif(trim(p_legal_name), ''),
+      nullif(trim(p_business_type), ''),
+      nullif(trim(p_email), ''),
+      nullif(trim(p_phone), ''),
+      nullif(trim(p_website), ''),
+      nullif(trim(p_address_line1), ''),
+      nullif(trim(p_address_line2), ''),
+      nullif(trim(p_city), ''),
+      nullif(trim(p_state), ''),
+      nullif(trim(p_postal_code), ''),
+      nullif(trim(p_country), ''),
+      nullif(trim(p_tax_id), ''),
+      coalesce(nullif(trim(p_currency), ''), 'INR'),
+      coalesce(nullif(trim(p_timezone), ''), 'Asia/Kolkata'),
+      coalesce(nullif(trim(p_date_format), ''), 'DD/MM/YYYY'),
+      p_logo_url,
+      'active',
+      auth.uid()
+    )
+    returning id into v_org_id;
+  end if;
+
+  if not exists (
+    select 1 from public.roles where organization_id = v_org_id
+  ) then
+    insert into public.roles (organization_id, name, slug, description, is_system, is_active)
+    values
+      (v_org_id, 'Owner', 'owner', 'Full ownership access to the organization', true, true),
+      (v_org_id, 'Admin', 'admin', 'Manages the organization and its settings', true, true),
+      (v_org_id, 'Manager', 'manager', 'Runs day-to-day operations at assigned branches', true, true),
+      (v_org_id, 'Staff', 'staff', 'Front desk and operations staff', true, true),
+      (v_org_id, 'Receptionist', 'receptionist', 'Handles front desk check-ins and member intake', false, true),
+      (v_org_id, 'Trainer', 'trainer', 'Delivers training sessions and tracks attendance', false, true),
+      (v_org_id, 'Accountant', 'accountant', 'Handles billing, refunds and financial reports', false, true),
+      (v_org_id, 'Member', 'member', 'Gym customer with access to their own training', false, true);
+
+    perform public.seed_default_role_permissions(v_org_id);
+  end if;
+
+  select id into v_owner_role_id
+  from public.roles
+  where organization_id = v_org_id and slug = 'owner';
+
+  insert into public.organization_members (
+    organization_id, user_id, role_id, status, access_all_branches,
+    accepted_at, created_by
+  )
+  values (v_org_id, auth.uid(), v_owner_role_id, 'active', true, now(), auth.uid())
+  returning id into v_member_id;
+
+  insert into public.branches (
+    organization_id, name, code, phone, email,
+    address_line1, address_line2, city, state, postal_code, country,
+    timezone, status
+  )
+  values (
+    v_org_id,
+    trim(p_branch_name),
+    upper(trim(p_branch_code)),
+    nullif(trim(p_branch_phone), ''),
+    nullif(trim(p_branch_email), ''),
+    nullif(trim(p_branch_address_line1), ''),
+    nullif(trim(p_branch_address_line2), ''),
+    nullif(trim(p_branch_city), ''),
+    nullif(trim(p_branch_state), ''),
+    nullif(trim(p_branch_postal_code), ''),
+    nullif(trim(p_branch_country), ''),
+    coalesce(nullif(trim(p_branch_timezone), ''), 'Asia/Kolkata'),
+    'active'
+  )
+  returning id into v_branch_id;
+
+  insert into public.member_branches (organization_id, member_id, branch_id)
+  values (v_org_id, v_member_id, v_branch_id);
+
+  return v_org_id;
+end;
+$$;
+
+grant execute on function public.create_organization(
+  text, text, text, text, text, text, text, text, text, text, text, text,
+  text, text, text, text, text, text, text, text, text, text, text, text,
+  text, text, text, text
+) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 5. Link / unlink RPCs
+-- ---------------------------------------------------------------------------
+
+create or replace function public.link_trainer_user(p_trainer_id uuid, p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_slug text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  if p_user_id is null then
+    raise exception 'a user is required';
+  end if;
+
+  select organization_id into v_org_id
+  from public.trainers where id = p_trainer_id;
+  if v_org_id is null then
+    raise exception 'trainer not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'users.manage');
+
+  select r.slug into v_slug
+  from public.organization_members m
+  join public.roles r on r.id = m.role_id
+  where m.organization_id = v_org_id
+    and m.user_id = p_user_id
+    and m.status = 'active';
+  if v_slug is null then
+    raise exception 'user is not a member of this organization';
+  end if;
+  if v_slug <> 'trainer' then
+    raise exception 'user must have the trainer role';
+  end if;
+  if exists (
+    select 1 from public.gym_members g
+    where g.organization_id = v_org_id and g.user_id = p_user_id
+  ) then
+    raise exception 'login is already linked to a member';
+  end if;
+  if exists (
+    select 1 from public.trainers t
+    where t.organization_id = v_org_id and t.user_id = p_user_id and t.id <> p_trainer_id
+  ) then
+    raise exception 'login is already linked to another trainer';
+  end if;
+
+  update public.trainers
+  set user_id = p_user_id
+  where id = p_trainer_id and organization_id = v_org_id;
+end;
+$$;
+
+grant execute on function public.link_trainer_user(uuid, uuid) to authenticated;
+
+create or replace function public.unlink_trainer_user(p_trainer_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  select organization_id into v_org_id
+  from public.trainers where id = p_trainer_id;
+  if v_org_id is null then
+    raise exception 'trainer not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'users.manage');
+
+  update public.trainers
+  set user_id = null
+  where id = p_trainer_id and organization_id = v_org_id;
+end;
+$$;
+
+grant execute on function public.unlink_trainer_user(uuid) to authenticated;
+
+create or replace function public.link_gym_member_user(p_member_id uuid, p_user_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_slug text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  if p_user_id is null then
+    raise exception 'a user is required';
+  end if;
+
+  select organization_id into v_org_id
+  from public.gym_members where id = p_member_id;
+  if v_org_id is null then
+    raise exception 'member not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'users.manage');
+
+  select r.slug into v_slug
+  from public.organization_members m
+  join public.roles r on r.id = m.role_id
+  where m.organization_id = v_org_id
+    and m.user_id = p_user_id
+    and m.status = 'active';
+  if v_slug is null then
+    raise exception 'user is not a member of this organization';
+  end if;
+  if v_slug <> 'member' then
+    raise exception 'user must have the member role';
+  end if;
+  if exists (
+    select 1 from public.trainers t
+    where t.organization_id = v_org_id and t.user_id = p_user_id
+  ) then
+    raise exception 'login is already linked to a trainer';
+  end if;
+  if exists (
+    select 1 from public.gym_members g
+    where g.organization_id = v_org_id and g.user_id = p_user_id and g.id <> p_member_id
+  ) then
+    raise exception 'login is already linked to another member';
+  end if;
+
+  update public.gym_members
+  set user_id = p_user_id
+  where id = p_member_id and organization_id = v_org_id;
+end;
+$$;
+
+grant execute on function public.link_gym_member_user(uuid, uuid) to authenticated;
+
+create or replace function public.unlink_gym_member_user(p_member_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  select organization_id into v_org_id
+  from public.gym_members where id = p_member_id;
+  if v_org_id is null then
+    raise exception 'member not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'users.manage');
+
+  update public.gym_members
+  set user_id = null
+  where id = p_member_id and organization_id = v_org_id;
+end;
+$$;
+
+grant execute on function public.unlink_gym_member_user(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 6. Linked trainers may update status on their own PT sessions
+-- ---------------------------------------------------------------------------
+
+create or replace function public.set_pt_session_status(
+  p_session_id uuid,
+  p_status text
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_trainer uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+  select organization_id, trainer_id into v_org_id, v_trainer
+  from public.pt_sessions where id = p_session_id;
+  if v_org_id is null then
+    raise exception 'session not found';
+  end if;
+  if not (
+    public.user_has_permission(v_org_id, 'trainers.edit')
+    or public.linked_trainer_id(v_org_id) is not distinct from v_trainer
+  ) then
+    raise exception 'insufficient privileges';
+  end if;
+  if p_status is null or p_status not in ('scheduled', 'completed', 'cancelled', 'no_show') then
+    raise exception 'status is invalid';
+  end if;
+  update public.pt_sessions set status = p_status where id = p_session_id;
+end;
+$$;
+
+grant execute on function public.set_pt_session_status(uuid, text) to authenticated;

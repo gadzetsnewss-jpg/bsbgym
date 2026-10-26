@@ -165,7 +165,7 @@ function leadParams(values: ResourceValues) {
 export const leadAdapter = createTableAdapter<LeadRow>({
   table: "leads",
   select:
-    "id, organization_id, branch_id, first_name, last_name, full_name, email, phone, source, status, interest, notes, assigned_to, converted_member_id, created_at, branches(id, name, code), gym_members(id, full_name, first_name, last_name)",
+    "id, organization_id, branch_id, first_name, last_name, full_name, email, phone, source, status, interest, notes, assigned_to, converted_member_id, created_at, branches!leads_branch_id_fkey(id, name, code), gym_members(id, full_name, first_name, last_name)",
   searchColumns: ["full_name", "phone", "email", "source", "interest"],
   order: { column: "created_at", ascending: false },
   filterColumns: { status: "status", branchId: "branch_id", assignedTo: "assigned_to" },
@@ -219,7 +219,7 @@ export const leadAdapter = createTableAdapter<LeadRow>({
 export const followUpAdapter = createTableAdapter<FollowUpRow>({
   table: "follow_ups",
   select:
-    "id, organization_id, branch_id, lead_id, member_id, due_at, status, notes, assigned_to, branches(id, name, code), leads(id, full_name, first_name, last_name), gym_members(id, full_name, first_name, last_name)",
+    "id, organization_id, branch_id, lead_id, member_id, due_at, status, notes, assigned_to, branches!follow_ups_branch_id_fkey(id, name, code), leads(id, full_name, first_name, last_name), gym_members(id, full_name, first_name, last_name)",
   searchColumns: ["notes"],
   order: { column: "due_at", ascending: true },
   filterColumns: { status: "status", branchId: "branch_id", assignedTo: "assigned_to", leadId: "lead_id" },
@@ -270,7 +270,7 @@ export const followUpAdapter = createTableAdapter<FollowUpRow>({
 export const trialAdapter = createTableAdapter<TrialRow>({
   table: "trial_memberships",
   select:
-    "id, organization_id, branch_id, lead_id, member_id, starts_on, ends_on, status, notes, branches(id, name, code), leads(id, full_name, first_name, last_name), gym_members(id, full_name, first_name, last_name)",
+    "id, organization_id, branch_id, lead_id, member_id, starts_on, ends_on, status, notes, branches!trial_memberships_branch_id_fkey(id, name, code), leads(id, full_name, first_name, last_name), gym_members(id, full_name, first_name, last_name)",
   searchColumns: ["notes"],
   order: { column: "starts_on", ascending: false },
   filterColumns: { status: "status", branchId: "branch_id", leadId: "lead_id" },

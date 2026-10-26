@@ -1,13 +1,19 @@
 "use client";
 
 import { cn } from "@/lib/utils";
+import * as React from "react";
 import Link from "next/link";
 import { ArrowUpRight } from "lucide-react";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
 import { DataTable, type Column } from "@/components/ui/data-table";
 import { StatusBadge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/ui/user-avatar";
-import { RECENT_MEMBERS } from "@/data/mock-dashboard";
+import { ErrorState } from "@/components/ui/error-state";
+import { LoadingState } from "@/components/ui/loading-state";
+import { EmptyState } from "@/components/ui/empty-state";
+import { useOrganization } from "@/components/auth/org-provider";
+import { useFinanceSettings } from "@/components/finance/use-finance-settings";
+import { fetchRecentMembersLive } from "@/lib/dashboard/client";
 import type { MemberRow } from "@/types/dashboard";
 
 const columns: Column<MemberRow>[] = [
@@ -48,6 +54,34 @@ const columns: Column<MemberRow>[] = [
 ];
 
 export function RecentMembers({ className }: { className?: string }) {
+  const { organization, can } = useOrganization();
+  const orgId = organization?.id;
+  const canView = can("members.view") || can("dashboard.view");
+  const { dateFormat } = useFinanceSettings();
+  const [rows, setRows] = React.useState<MemberRow[]>([]);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+
+  const load = React.useCallback(async () => {
+    if (!orgId || !canView) {
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const result = await fetchRecentMembersLive(orgId, dateFormat);
+    setLoading(false);
+    if (result.error) {
+      setError(result.error.message);
+      return;
+    }
+    setRows(result.data);
+  }, [orgId, canView, dateFormat]);
+
+  React.useEffect(() => {
+    void load();
+  }, [load]);
+
   return (
     <Card className={cn("h-full", className)} noPadding>
       <CardHeader className="px-5 pt-5">
@@ -65,7 +99,25 @@ export function RecentMembers({ className }: { className?: string }) {
           <ArrowUpRight aria-hidden="true" className="size-3.5" />
         </Link>
       </CardHeader>
-      <DataTable columns={columns} data={RECENT_MEMBERS} rowKey={(row) => row.id} />
+      {!canView ? (
+        <div className="p-5">
+          <EmptyState title="Members are restricted" description="You do not have permission to view members." />
+        </div>
+      ) : error ? (
+        <div className="p-5">
+          <ErrorState description={error} onRetry={() => void load()} />
+        </div>
+      ) : loading ? (
+        <div className="p-5">
+          <LoadingState label="Loading members…" />
+        </div>
+      ) : rows.length === 0 ? (
+        <div className="p-5">
+          <EmptyState title="No members yet" description="New member profiles appear here." />
+        </div>
+      ) : (
+        <DataTable columns={columns} data={rows} rowKey={(row) => row.id} />
+      )}
     </Card>
   );
 }

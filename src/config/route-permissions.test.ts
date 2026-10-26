@@ -87,6 +87,16 @@ describe("requiredPermissionForPath", () => {
     expect(requiredPermissionForPath("/fitness/progress/add")).toBe("fitness.manage");
   });
 
+  it("maps finance write routes to finance.manage and lists to finance.view", () => {
+    expect(requiredPermissionForPath("/finance")).toBe("finance.view");
+    expect(requiredPermissionForPath("/finance/expenses")).toBe("finance.view");
+    expect(requiredPermissionForPath("/finance/income")).toBe("finance.view");
+    expect(requiredPermissionForPath("/finance/transactions")).toBe("finance.view");
+    expect(requiredPermissionForPath("/finance/reports")).toBe("finance.view");
+    expect(requiredPermissionForPath("/finance/expenses/new")).toBe("finance.manage");
+    expect(requiredPermissionForPath("/finance/income/new")).toBe("finance.manage");
+  });
+
   it("maps CRM write routes to crm.manage and lists to crm.view", () => {
     expect(requiredPermissionForPath("/crm")).toBe("crm.view");
     expect(requiredPermissionForPath("/crm/leads")).toBe("crm.view");

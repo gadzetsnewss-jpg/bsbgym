@@ -431,6 +431,13 @@ export const NAV_SECTIONS: NavSection[] = [
     title: "Finance",
     items: [
       {
+        title: "Finance",
+        href: "/finance",
+        icon: Wallet,
+        description: "Collections, expenses, receivables and cash movement.",
+        permission: "finance.view",
+      },
+      {
         title: "Expenses",
         href: "/finance/expenses",
         icon: Wallet,
@@ -438,17 +445,24 @@ export const NAV_SECTIONS: NavSection[] = [
         permission: "finance.view",
       },
       {
-        title: "Income",
+        title: "Other Income",
         href: "/finance/income",
         icon: CirclePlus,
-        description: "Income streams and recognition.",
+        description: "Manual receipts that are not invoice payments or POS sales.",
+        permission: "finance.view",
+      },
+      {
+        title: "Transactions",
+        href: "/finance/transactions",
+        icon: ReceiptText,
+        description: "Expenses, income, payments, POS sales and purchases.",
         permission: "finance.view",
       },
       {
         title: "Finance Reports",
         href: "/finance/reports",
-        icon: ReceiptText,
-        description: "Profit & loss and financial summaries.",
+        icon: ChartColumn,
+        description: "Cash movement and collections summary.",
         permission: "finance.view",
       },
     ],

@@ -1,5 +1,8 @@
-import { ModulePlaceholder } from "@/components/modules/module-placeholder";
+import type { Metadata } from "next";
+import { NotificationCenterScreen } from "@/components/notifications/notification-center";
 
-export default function PlaceholderPage() {
-  return <ModulePlaceholder href="/notifications" />;
+export const metadata: Metadata = { title: "Notifications" };
+
+export default function NotificationsPage() {
+  return <NotificationCenterScreen />;
 }

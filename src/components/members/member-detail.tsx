@@ -40,6 +40,7 @@ import {
   setGymMemberStatus,
   type GymMemberRow,
 } from "@/lib/org/gym-members";
+import { MemberLoginLinkPanel } from "@/components/org/login-link-panel";
 import { GYM_MEMBER_STATUS_LABELS } from "@/lib/auth/permissions";
 import { displayName, formatDate } from "@/lib/format";
 import type { GymMemberStatus } from "@/lib/supabase/types";
@@ -343,6 +344,14 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
                 </p>
               </div>
             </Card>
+
+            <div className="lg:col-span-3">
+              <MemberLoginLinkPanel
+                memberId={member.id}
+                linkedUserId={member.userId}
+                onChanged={() => void load()}
+              />
+            </div>
           </div>
         )}
 

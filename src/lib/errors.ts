@@ -215,7 +215,47 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("convert the lead to create a member") ||
     text.includes("converted leads cannot change status") ||
     text.includes("referred name is required") ||
-    text.includes("referrer is required")
+    text.includes("referrer is required") ||
+    text.includes("supplier not found") ||
+    text.includes("product not found") ||
+    text.includes("product name is required") ||
+    text.includes("product sku already exists") ||
+    text.includes("stock values cannot be negative") ||
+    text.includes("supplier name is required") ||
+    text.includes("trainer code already exists") ||
+    text.includes("plan code already exists") ||
+    text.includes("class name is required") ||
+    text.includes("product is not active") ||
+    text.includes("product is required") ||
+    text.includes("purchase not found") ||
+    text.includes("purchase is already received") ||
+    text.includes("purchase is already cancelled") ||
+    text.includes("cancelled purchases cannot be received") ||
+    text.includes("received purchases cannot be cancelled") ||
+    text.includes("only draft purchases can be updated") ||
+    text.includes("at least one purchase item is required") ||
+    text.includes("sale not found") ||
+    text.includes("sale is already void") ||
+    text.includes("at least one sale item is required") ||
+    text.includes("insufficient stock") ||
+    text.includes("movement type is invalid") ||
+    text.includes("quantity must not be zero") ||
+    text.includes("discount exceeds the sale total") ||
+    text.includes("expense category is required") ||
+    text.includes("expense amount must be greater than zero") ||
+    text.includes("expense status is invalid") ||
+    text.includes("expense not found") ||
+    text.includes("income category is required") ||
+    text.includes("income amount must be greater than zero") ||
+    text.includes("income entry not found") ||
+    text.includes("a user is required") ||
+    text.includes("user is not a member of this organization") ||
+    text.includes("user must have the trainer role") ||
+    text.includes("user must have the member role") ||
+    text.includes("login is already linked to a member") ||
+    text.includes("login is already linked to a trainer") ||
+    text.includes("login is already linked to another trainer") ||
+    text.includes("login is already linked to another member")
   ) {
     return { code: "validation", message: raw };
   }

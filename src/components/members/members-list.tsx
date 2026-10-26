@@ -86,7 +86,10 @@ export function MembersList({
 }: MembersListProps) {
   const router = useRouter();
   const { toast } = useToast();
-  const { organization, branches, can } = useOrganization();
+  const { organization, branches, can, hasRole } = useOrganization();
+  const isScopedHome = title === "Members";
+  const isTrainerHome = isScopedHome && hasRole(["trainer"]);
+  const isMemberHome = isScopedHome && hasRole(["member"]);
   const orgId = organization?.id;
 
   const canCreate = can("members.create");
@@ -304,8 +307,14 @@ export function MembersList({
   return (
     <div className="space-y-6">
       <PageHeader
-        title={title}
-        description={description}
+        title={isMemberHome ? "My profile" : isTrainerHome ? "My members" : title}
+        description={
+          isMemberHome
+            ? "Your member profile."
+            : isTrainerHome
+              ? "Members assigned to you."
+              : description
+        }
         icon={Users}
         actions={
           canCreate ? (
@@ -378,11 +387,23 @@ export function MembersList({
           rowKey={(row) => row.id}
           loading={loading}
           onRowClick={(row) => router.push(`/members/${row.id}`)}
-          emptyTitle={activeFilterCount > 0 ? "No members match your filters" : "No members yet"}
+          emptyTitle={
+            activeFilterCount > 0
+              ? "No members match your filters"
+              : isMemberHome
+                ? "Member profile is not linked"
+                : isTrainerHome
+                  ? "No assigned members"
+                  : "No members yet"
+          }
           emptyDescription={
             activeFilterCount > 0
               ? "Try adjusting your search or clearing the filters."
-              : "Add your first gym member to get started."
+              : isMemberHome
+                ? "Ask an owner to link your login on your member profile."
+                : isTrainerHome
+                  ? "Members assigned to you appear here."
+                  : "Add your first gym member to get started."
           }
           emptyAction={
             canCreate ? (

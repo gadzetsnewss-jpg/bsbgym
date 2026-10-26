@@ -9,11 +9,10 @@ import {
   Target,
   UserPlus,
 } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { Card } from "@/components/ui/card";
 import { ButtonLink } from "@/components/ui/button";
+import { useOrganization } from "@/components/auth/org-provider";
 import { QUICK_ACTIONS } from "@/data/mock-dashboard";
-import { CURRENT_USER } from "@/data/mock-org";
 
 const QUICK_ACTION_ICONS: Record<string, LucideIcon> = {
   "qa-1": UserPlus,
@@ -38,6 +37,7 @@ function greetingFor(hour: number): string {
 }
 
 export function GreetingBanner() {
+  const { profile, organization, hasRole, can } = useOrganization();
   const [dateLabel, setDateLabel] = React.useState("");
   const [greeting, setGreeting] = React.useState("Good morning");
 
@@ -47,7 +47,15 @@ export function GreetingBanner() {
     setGreeting(greetingFor(now.getHours()));
   }, []);
 
-  const firstName = CURRENT_USER.name.split(" ")[0];
+  const firstName = profile?.firstName?.trim() || organization?.name || "there";
+  const isTrainer = hasRole(["trainer"]);
+  const isMember = hasRole(["member"]);
+  const subtitle = isTrainer
+    ? "Your assigned members and PT sessions."
+    : isMember
+      ? "Your trainer and PT sessions."
+      : "Here's what's happening at your gym today.";
+  const showQuickActions = !isTrainer && !isMember;
 
   return (
     <Card className="relative overflow-hidden">
@@ -65,9 +73,7 @@ export function GreetingBanner() {
           <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
             {greeting}, {firstName}
           </h1>
-          <p className="mt-1.5 text-sm text-neutral-500 sm:text-base">
-            Here&apos;s what&apos;s happening at your gym today.
-          </p>
+          <p className="mt-1.5 text-sm text-neutral-500 sm:text-base">{subtitle}</p>
           {dateLabel && (
             <p className="mt-3 inline-flex items-center rounded-full border border-border bg-surface-muted px-3 py-1 text-xs font-medium text-neutral-500">
               {dateLabel}
@@ -75,17 +81,33 @@ export function GreetingBanner() {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {QUICK_ACTIONS.map((action) => {
-            const Icon = QUICK_ACTION_ICONS[action.id] ?? FilePlus;
-            return (
-              <ButtonLink key={action.id} href={action.href} variant="secondary" size="sm">
-                <Icon aria-hidden="true" className="size-4" />
-                {action.label}
-              </ButtonLink>
-            );
-          })}
-        </div>
+        {showQuickActions && (
+          <div className="flex flex-wrap items-center gap-2">
+            {QUICK_ACTIONS.filter((action) => {
+              const permission =
+                action.id === "qa-1"
+                  ? "members.create"
+                  : action.id === "qa-2"
+                    ? "billing.create"
+                    : action.id === "qa-3"
+                      ? "attendance.view"
+                      : action.id === "qa-4"
+                        ? "payments.create"
+                        : action.id === "qa-5"
+                          ? "crm.manage"
+                          : null;
+              return !permission || can(permission);
+            }).map((action) => {
+              const Icon = QUICK_ACTION_ICONS[action.id] ?? FilePlus;
+              return (
+                <ButtonLink key={action.id} href={action.href} variant="secondary" size="sm">
+                  <Icon aria-hidden="true" className="size-4" />
+                  {action.label}
+                </ButtonLink>
+              );
+            })}
+          </div>
+        )}
       </div>
     </Card>
   );
