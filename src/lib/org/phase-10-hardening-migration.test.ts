@@ -95,6 +95,9 @@ describe("Phase 10 hardening migration", () => {
       "class_bookings",
     ]) {
       expect(migration).toMatch(
+        new RegExp(`if to_regclass\\('public\\.${table}'\\) is null then`),
+      );
+      expect(migration).toMatch(
         new RegExp(`create policy "org members can view [\\w ]+"\\s+on public\\.${table} for select`),
       );
     }

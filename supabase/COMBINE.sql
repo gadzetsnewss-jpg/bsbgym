@@ -3042,104 +3042,163 @@ create trigger protect_profile_username
 -- class_sessions) already require user_has_branch_access. Child rows only
 -- checked is_org_member, so a branch-restricted staff member could read
 -- another branch's line items by id.
+--
+-- DROP POLICY ... ON <table> still requires the table. Skip children that
+-- were never created on this database (live is missing credit_note_items).
 
-drop policy if exists "org members can view invoice items" on public.invoice_items;
-create policy "org members can view invoice items"
-  on public.invoice_items for select
-  using (
-    exists (
-      select 1
-      from public.invoices parent
-      where parent.id = invoice_id
-        and parent.organization_id = invoice_items.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.invoice_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view invoice items" on public.invoice_items;
+    create policy "org members can view invoice items"
+      on public.invoice_items for select
+      using (
+        exists (
+          select 1
+          from public.invoices parent
+          where parent.id = invoice_id
+            and parent.organization_id = invoice_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
-drop policy if exists "org members can view installments" on public.installments;
-create policy "org members can view installments"
-  on public.installments for select
-  using (
-    exists (
-      select 1
-      from public.invoices parent
-      where parent.id = invoice_id
-        and parent.organization_id = installments.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.installments') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view installments" on public.installments;
+    create policy "org members can view installments"
+      on public.installments for select
+      using (
+        exists (
+          select 1
+          from public.invoices parent
+          where parent.id = invoice_id
+            and parent.organization_id = installments.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
-drop policy if exists "org members can view pos sale items" on public.pos_sale_items;
-create policy "org members can view pos sale items"
-  on public.pos_sale_items for select
-  using (
-    exists (
-      select 1
-      from public.pos_sales parent
-      where parent.id = sale_id
-        and parent.organization_id = pos_sale_items.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.pos_sale_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view pos sale items" on public.pos_sale_items;
+    create policy "org members can view pos sale items"
+      on public.pos_sale_items for select
+      using (
+        exists (
+          select 1
+          from public.pos_sales parent
+          where parent.id = sale_id
+            and parent.organization_id = pos_sale_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
-drop policy if exists "org members can view purchase items" on public.purchase_items;
-create policy "org members can view purchase items"
-  on public.purchase_items for select
-  using (
-    exists (
-      select 1
-      from public.purchases parent
-      where parent.id = purchase_id
-        and parent.organization_id = purchase_items.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.purchase_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view purchase items" on public.purchase_items;
+    create policy "org members can view purchase items"
+      on public.purchase_items for select
+      using (
+        exists (
+          select 1
+          from public.purchases parent
+          where parent.id = purchase_id
+            and parent.organization_id = purchase_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
-drop policy if exists "org members can view credit note items" on public.credit_note_items;
-create policy "org members can view credit note items"
-  on public.credit_note_items for select
-  using (
-    exists (
-      select 1
-      from public.credit_notes parent
-      where parent.id = credit_note_id
-        and parent.organization_id = credit_note_items.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.credit_note_items') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view credit note items" on public.credit_note_items;
+    create policy "org members can view credit note items"
+      on public.credit_note_items for select
+      using (
+        exists (
+          select 1
+          from public.credit_notes parent
+          where parent.id = credit_note_id
+            and parent.organization_id = credit_note_items.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
-drop policy if exists "org members can view membership freezes" on public.membership_freezes;
-create policy "org members can view membership freezes"
-  on public.membership_freezes for select
-  using (
-    exists (
-      select 1
-      from public.memberships parent
-      where parent.id = membership_id
-        and parent.organization_id = membership_freezes.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.membership_freezes') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view membership freezes" on public.membership_freezes;
+    create policy "org members can view membership freezes"
+      on public.membership_freezes for select
+      using (
+        exists (
+          select 1
+          from public.memberships parent
+          where parent.id = membership_id
+            and parent.organization_id = membership_freezes.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
-drop policy if exists "org members can view class bookings" on public.class_bookings;
-create policy "org members can view class bookings"
-  on public.class_bookings for select
-  using (
-    exists (
-      select 1
-      from public.class_sessions parent
-      where parent.id = class_session_id
-        and parent.organization_id = class_bookings.organization_id
-        and public.is_org_member(parent.organization_id)
-        and public.user_has_branch_access(parent.organization_id, parent.branch_id)
-    )
-  );
+do $$
+begin
+  if to_regclass('public.class_bookings') is null then
+    return;
+  end if;
+  execute $p$
+    drop policy if exists "org members can view class bookings" on public.class_bookings;
+    create policy "org members can view class bookings"
+      on public.class_bookings for select
+      using (
+        exists (
+          select 1
+          from public.class_sessions parent
+          where parent.id = class_session_id
+            and parent.organization_id = class_bookings.organization_id
+            and public.is_org_member(parent.organization_id)
+            and public.user_has_branch_access(parent.organization_id, parent.branch_id)
+        )
+      );
+  $p$;
+end $$;
 
 -- #############################################################################
 -- FILE: supabase/migrations/20261024000034_trainer_member_user_links.sql
