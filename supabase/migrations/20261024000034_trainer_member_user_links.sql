@@ -131,10 +131,15 @@ begin
 end;
 $$;
 
-revoke all on function public.current_org_role_slug(uuid) from public, anon, authenticated;
-revoke all on function public.linked_trainer_id(uuid) from public, anon, authenticated;
-revoke all on function public.linked_gym_member_id(uuid) from public, anon, authenticated;
-revoke all on function public.can_view_member_data(uuid, uuid) from public, anon, authenticated;
+revoke all on function public.current_org_role_slug(uuid) from public, anon;
+revoke all on function public.linked_trainer_id(uuid) from public, anon;
+revoke all on function public.linked_gym_member_id(uuid) from public, anon;
+revoke all on function public.can_view_member_data(uuid, uuid) from public, anon;
+
+grant execute on function public.current_org_role_slug(uuid) to authenticated;
+grant execute on function public.linked_trainer_id(uuid) to authenticated;
+grant execute on function public.linked_gym_member_id(uuid) to authenticated;
+grant execute on function public.can_view_member_data(uuid, uuid) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 3. Scoped SELECT policies

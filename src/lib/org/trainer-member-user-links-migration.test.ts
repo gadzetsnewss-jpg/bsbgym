@@ -49,16 +49,31 @@ describe("trainer/member login-link migration", () => {
     expect(migration).toMatch(/create or replace function public\.linked_gym_member_id\(p_org_id uuid\)/);
     expect(migration).toMatch(/create or replace function public\.can_view_member_data\(p_org_id uuid, p_member_id uuid\)/);
     expect(migration).toMatch(
+      /revoke all on function public\.current_org_role_slug\(uuid\) from public, anon/,
+    );
+    expect(migration).toMatch(
+      /revoke all on function public\.linked_trainer_id\(uuid\) from public, anon/,
+    );
+    expect(migration).toMatch(
+      /revoke all on function public\.linked_gym_member_id\(uuid\) from public, anon/,
+    );
+    expect(migration).toMatch(
+      /revoke all on function public\.can_view_member_data\(uuid, uuid\) from public, anon/,
+    );
+    expect(migration).toMatch(
+      /grant execute on function public\.current_org_role_slug\(uuid\) to authenticated/,
+    );
+    expect(migration).toMatch(
+      /grant execute on function public\.linked_trainer_id\(uuid\) to authenticated/,
+    );
+    expect(migration).toMatch(
+      /grant execute on function public\.linked_gym_member_id\(uuid\) to authenticated/,
+    );
+    expect(migration).toMatch(
+      /grant execute on function public\.can_view_member_data\(uuid, uuid\) to authenticated/,
+    );
+    expect(migration).not.toMatch(
       /revoke all on function public\.current_org_role_slug\(uuid\) from public, anon, authenticated/,
-    );
-    expect(migration).toMatch(
-      /revoke all on function public\.linked_trainer_id\(uuid\) from public, anon, authenticated/,
-    );
-    expect(migration).toMatch(
-      /revoke all on function public\.linked_gym_member_id\(uuid\) from public, anon, authenticated/,
-    );
-    expect(migration).toMatch(
-      /revoke all on function public\.can_view_member_data\(uuid, uuid\) from public, anon, authenticated/,
     );
     expect(functionBody("can_view_member_data")).toMatch(/a\.status = 'active'/);
     expect(migration).toMatch(/public\.can_view_member_data\(organization_id, id\)/);
@@ -94,5 +109,15 @@ describe("trainer/member login-link COMBINE.sql", () => {
     expect(combine).toMatch(/20261024000034_trainer_member_user_links\.sql/);
     expect(combine).toMatch(/create or replace function public\.link_trainer_user/);
     expect(combine).toMatch(/create or replace function public\.can_view_member_data/);
+  });
+
+  it("grants authenticated EXECUTE on RLS helpers so Owner SELECT is not permission-denied", () => {
+    expect(combine).toMatch(/20261027000035_grant_rls_helper_execute\.sql/);
+    expect(combine).toMatch(
+      /grant execute on function public\.current_org_role_slug\(uuid\) to authenticated/,
+    );
+    expect(combine).toMatch(
+      /grant execute on function public\.can_view_member_data\(uuid, uuid\) to authenticated/,
+    );
   });
 });
