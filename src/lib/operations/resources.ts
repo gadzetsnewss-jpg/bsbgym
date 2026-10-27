@@ -365,6 +365,7 @@ export const trainerAssignmentResource: ResourceConfig<TrainerAssignmentRow> = {
   },
   searchPlaceholder: "Search assignment notes",
   emptyDescription: "Assign a trainer to a member to get started.",
+  createSuccessTitle: "Trainer assigned successfully",
   filters: [
     {
       name: "status",

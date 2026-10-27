@@ -50,6 +50,11 @@ describe("toFriendlyError", () => {
         message: "function public.require_org_permission(uuid, unknown) does not exist",
       }),
     ).toBe("Something went wrong on our end. Please try again.");
+    expect(
+      toFriendlyError({
+        message: "Could not find the function public.create_trainer_assignment in the schema cache",
+      }).code,
+    ).toBe("database");
   });
 
   it("preserves useful validation messages", () => {
