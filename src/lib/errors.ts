@@ -48,6 +48,7 @@ const SCHEMA_MISSING_KEYS: readonly string[] = [
   "relation ",
   "type ",
   "operator ",
+  "could not find the function",
 ];
 
 const FORBIDDEN_KEYS: readonly string[] = [
@@ -163,6 +164,8 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("plan is not active") ||
     text.includes("start and end dates are required") ||
     text.includes("member not found") ||
+    text.includes("trainer not found") ||
+    text.includes("assignment not found") ||
     text.includes("membership not found") ||
     text.includes("at least one invoice item is required") ||
     text.includes("tax mode is invalid") ||

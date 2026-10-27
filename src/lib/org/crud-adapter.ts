@@ -78,9 +78,20 @@ export interface TableAdapterOptions<TRow> {
 export function createTableAdapter<TRow>(
   opts: TableAdapterOptions<TRow>,
 ): ResourceAdapter<TRow> {
-  const errorOf = (error: unknown): { message: string } => ({
-    message: friendlyMessage(error),
-  });
+  const errorOf = (error: unknown): { message: string } => {
+    if (process.env.NODE_ENV !== "production") {
+      const raw =
+        typeof error === "object" && error !== null && "message" in error
+          ? String((error as { message: unknown }).message)
+          : String(error ?? "");
+      const code =
+        typeof error === "object" && error !== null && "code" in error
+          ? String((error as { code: unknown }).code)
+          : undefined;
+      console.error(`[${opts.rpcCreate}]`, code ?? "no-code", raw);
+    }
+    return { message: friendlyMessage(error) };
+  };
 
   return {
     async list(params: ResourceListParams): Promise<OrgResult<{ rows: TRow[]; total: number }>> {
