@@ -299,6 +299,7 @@ export interface Database {
           org_id: string | null;
           branch_id: string | null;
           preferences: Json;
+          must_change_password: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -315,6 +316,7 @@ export interface Database {
           org_id?: string | null;
           branch_id?: string | null;
           preferences: Json;
+          must_change_password?: boolean;
         }>;
         Update: Partial<{
           first_name: string;
@@ -1408,6 +1410,22 @@ export interface Database {
       auth_email_for_username: {
         Args: { p_username: string };
         Returns: string | null;
+      };
+      auth_email_for_member_code: {
+        Args: { p_code: string };
+        Returns: string | null;
+      };
+      auth_email_for_trainer_code: {
+        Args: { p_code: string };
+        Returns: string | null;
+      };
+      provision_linked_login: {
+        Args: { p_kind: string; p_record_id: string; p_user_id: string };
+        Returns: void;
+      };
+      complete_password_change: {
+        Args: { p_user_id: string };
+        Returns: void;
       };
       user_has_org_access: {
         Args: { p_org_id: string };

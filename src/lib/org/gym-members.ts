@@ -787,6 +787,29 @@ export async function unlinkGymMemberUser(memberId: string): Promise<OrgResult> 
   return { data: undefined, error: null };
 }
 
+export async function provisionLinkedLogin(
+  kind: "trainer" | "member",
+  recordId: string,
+): Promise<OrgResult<{ loginId: string }>> {
+  try {
+    const response = await fetch("/api/org/provision-login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, recordId }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; loginId?: string; error?: string };
+    if (!response.ok || !payload.ok || !payload.loginId) {
+      return {
+        data: null,
+        error: { message: payload.error || "Unable to create a login right now." },
+      };
+    }
+    return { data: { loginId: payload.loginId }, error: null };
+  } catch {
+    return { data: null, error: { message: "Something went wrong. Please try again." } };
+  }
+}
+
 export async function setPtSessionStatus(
   sessionId: string,
   status: string,

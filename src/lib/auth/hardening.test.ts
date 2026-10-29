@@ -51,5 +51,6 @@ describe("profile write surface", () => {
     expect(updateBlock).not.toMatch(/branch_id/);
     expect(updateBlock).not.toMatch(/username/);
     expect(updateBlock).not.toMatch(/email/);
+    expect(updateBlock).not.toMatch(/must_change_password/);
   });
 });

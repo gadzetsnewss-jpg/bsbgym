@@ -78,6 +78,8 @@ export interface AppContextData {
   branches: AppBranch[];
   /** Currently selected branch (persisted in the browser). */
   currentBranchId: string | null;
+  /** Trusted backend flag; members must change the initial mobile password. */
+  mustChangePassword: boolean;
 }
 
 export interface AuthPageSearchParams {

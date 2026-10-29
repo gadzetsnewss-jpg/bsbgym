@@ -202,6 +202,11 @@ export async function resolveAppContext(): Promise<ResolvedAppContext> {
     permissions: (permissionsResult.data ?? []).map((row) => row.permission),
     branches,
     currentBranchId: null,
+    mustChangePassword: Boolean(
+      profileResult.data &&
+        "must_change_password" in profileResult.data &&
+        profileResult.data.must_change_password,
+    ),
   };
 
   return { status: "ok", context };

@@ -258,7 +258,11 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("login is already linked to a member") ||
     text.includes("login is already linked to a trainer") ||
     text.includes("login is already linked to another trainer") ||
-    text.includes("login is already linked to another member")
+    text.includes("login is already linked to another member") ||
+    text.includes("login kind is invalid") ||
+    text.includes("trainer code is required") ||
+    text.includes("member code is required") ||
+    text.includes("a registered mobile number is required")
   ) {
     return { code: "validation", message: raw };
   }

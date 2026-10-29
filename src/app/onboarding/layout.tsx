@@ -5,7 +5,10 @@ import { resolveAppContext, isSupabaseConfigured } from "@/lib/auth/server";
 export default async function OnboardingLayout({ children }: { children: React.ReactNode }) {
   if (isSupabaseConfigured) {
     const resolved = await resolveAppContext();
-    if (resolved.status === "ok") redirect("/dashboard");
+    if (resolved.status === "ok") {
+      if (resolved.context?.mustChangePassword) redirect("/change-password");
+      redirect("/dashboard");
+    }
     if (resolved.status === "unauthenticated") redirect("/login");
     // no_organization: proceed with onboarding.
   }

@@ -19,10 +19,12 @@ import {
   signUpWithPassword,
   sendPasswordResetEmail,
   updateUserPassword,
+  completeRequiredPasswordChange,
   type SessionUser,
   type SignUpInput,
   type SignUpResult,
 } from "@/lib/auth/session";
+import type { PortalRole } from "@/lib/validation/auth-schemas";
 
 type AuthStatus = "loading" | "authenticated" | "unauthenticated";
 
@@ -36,7 +38,8 @@ interface AuthContextValue {
   user: SessionUser | null;
   /** False when no Supabase project is configured (preview mode). */
   configured: boolean;
-  signIn: (username: string, password: string) => Promise<AuthResult>;
+  signIn: (username: string, password: string, portal?: PortalRole) => Promise<AuthResult>;
+  completePasswordChange: (password: string, confirmPassword: string) => Promise<AuthResult>;
   signUp: (input: SignUpInput) => Promise<{ data: SignUpResult | null; error: { message: string } | null }>;
   signOut: () => Promise<AuthResult>;
   sendPasswordReset: (username: string) => Promise<AuthResult>;
@@ -99,8 +102,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status,
       user,
       configured: isSupabaseConfigured,
-      signIn: async (username, password) => {
-        const result = await signInWithPassword(username, password);
+      signIn: async (username, password, portal) => {
+        const result = await signInWithPassword(username, password, portal);
+        return result.error ? { error: { message: result.error.message } } : { error: null };
+      },
+      completePasswordChange: async (password, confirmPassword) => {
+        const result = await completeRequiredPasswordChange(password, confirmPassword);
         return result.error ? { error: { message: result.error.message } } : { error: null };
       },
       signUp: async (input) => {

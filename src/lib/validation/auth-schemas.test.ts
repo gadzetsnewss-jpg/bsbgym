@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import {
   loginSchema,
+  portalLoginSchema,
   signUpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
@@ -44,6 +45,23 @@ describe("loginSchema", () => {
   it("rejects an empty username", () => {
     const result = loginSchema.safeParse({ username: "  ", password: "x" });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("portalLoginSchema", () => {
+  it("accepts member code login without an email field", () => {
+    const result = portalLoginSchema.safeParse({
+      id: "MEM-0001",
+      password: "9876543210",
+      portal: "member",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a missing portal", () => {
+    expect(
+      portalLoginSchema.safeParse({ id: "owner.one", password: "secret" }).success,
+    ).toBe(false);
   });
 });
 

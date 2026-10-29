@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { Dumbbell, ShieldCheck } from "lucide-react";
 import { AuthProvider } from "@/components/auth/auth-provider";
 import { resolveAppContext, isSupabaseConfigured } from "@/lib/auth/server";
@@ -12,10 +13,14 @@ const BRAND_POINTS = [
 
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   if (isSupabaseConfigured) {
+    const pathname = (await headers()).get("x-pathname") ?? "";
+    const isChangePassword = pathname === "/change-password";
     const resolved = await resolveAppContext();
-    // Signed-in users never see auth screens.
-    if (resolved.status === "ok") redirect("/dashboard");
-    if (resolved.status === "no_organization") redirect("/onboarding");
+    const mustChange = resolved.status === "ok" && Boolean(resolved.context?.mustChangePassword);
+    if (mustChange && !isChangePassword) redirect("/change-password");
+    if (resolved.status === "ok" && !mustChange) redirect("/dashboard");
+    if (resolved.status === "no_organization" && !isChangePassword) redirect("/onboarding");
+    if (resolved.status === "unauthenticated" && isChangePassword) redirect("/login");
   }
 
   return (

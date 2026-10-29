@@ -23,10 +23,19 @@ const PROTECTED_PREFIXES = [
   "/notifications",
   "/settings",
   "/onboarding",
+  "/change-password",
 ];
 
 /** Public auth paths - signed-in users are redirected by the auth layout. */
-const PUBLIC_PREFIXES = ["/login", "/signup", "/forgot-password", "/reset-password"];
+const PUBLIC_PREFIXES = [
+  "/login",
+  "/signup",
+  "/forgot-password",
+  "/reset-password",
+  "/owner/login",
+  "/trainer/login",
+  "/member/login",
+];
 
 /** Paths that must never be redirected (callbacks, asset-ish routes). */
 const EXCLUDED_PREFIXES = ["/auth", "/api", "/accept-invitation", "/_next"];

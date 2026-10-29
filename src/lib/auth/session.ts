@@ -15,6 +15,7 @@ import {
   normalizeUsername,
   toInternalAuthEmail,
 } from "@/lib/auth/username";
+import type { PortalRole } from "@/lib/validation/auth-schemas";
 
 export type AuthResult<T = undefined> =
   | { data: T; error: null }
@@ -90,6 +91,7 @@ const toResultError = (error: unknown): { message: string; code?: string } => {
 export async function signInWithPassword(
   username: string,
   password: string,
+  portal?: PortalRole,
 ): Promise<AuthResult> {
   if (!getSupabaseBrowserClient()) {
     return { data: null, error: { message: "Supabase is not configured." } };
@@ -99,7 +101,9 @@ export async function signInWithPassword(
     const response = await fetch("/api/auth/sign-in", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify(
+        portal ? { id: username, password, portal } : { username, password },
+      ),
     });
     const payload = (await response.json()) as { ok?: boolean; error?: string };
     if (!response.ok || !payload.ok) {
@@ -201,6 +205,33 @@ export async function updateUserPassword(password: string): Promise<AuthResult> 
   const { error } = await supabase.auth.updateUser({ password });
   if (error) return { data: null, error: toResultError(error) };
   return { data: undefined, error: null };
+}
+
+export async function completeRequiredPasswordChange(
+  password: string,
+  confirmPassword: string,
+): Promise<AuthResult> {
+  if (!getSupabaseBrowserClient()) {
+    return { data: null, error: { message: "Supabase is not configured." } };
+  }
+
+  try {
+    const response = await fetch("/api/auth/change-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password, confirmPassword }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !payload.ok) {
+      return {
+        data: null,
+        error: { message: payload.error || "Unable to update password right now." },
+      };
+    }
+    return { data: undefined, error: null };
+  } catch {
+    return { data: null, error: { message: "Something went wrong. Please try again." } };
+  }
 }
 
 /**

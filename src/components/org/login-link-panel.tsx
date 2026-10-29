@@ -14,6 +14,7 @@ import { fetchOrgMembers, type OrgMemberRow } from "@/lib/org/members";
 import {
   linkGymMemberUser,
   linkTrainerUser,
+  provisionLinkedLogin,
   unlinkGymMemberUser,
   unlinkTrainerUser,
 } from "@/lib/org/gym-members";
@@ -78,6 +79,7 @@ function LoginLinkPanel({
   const [loading, setLoading] = React.useState(true);
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [createdLocally, setCreatedLocally] = React.useState(false);
 
   const load = React.useCallback(async () => {
     if (!orgId || !canManage) {
@@ -150,13 +152,36 @@ function LoginLinkPanel({
       return;
     }
     toast({ title: "Login unlinked", variant: "success" });
+    setCreatedLocally(false);
     onChanged?.();
   };
+
+  const handleProvision = async () => {
+    setSaving(true);
+    const result = await provisionLinkedLogin(kind, recordId);
+    setSaving(false);
+    if (result.error) {
+      toast({ title: "Could not create login", description: result.error.message, variant: "error" });
+      return;
+    }
+    toast({
+      title: "Login created",
+      description:
+        kind === "member"
+          ? `Sign in at /member/login with ${result.data.loginId}. The initial password is the registered mobile number.`
+          : `Sign in at /trainer/login with ${result.data.loginId}. The initial password is the registered mobile number.`,
+      variant: "success",
+    });
+    setCreatedLocally(true);
+    onChanged?.();
+  };
+
+  const isLinked = Boolean(linkedUserId) || createdLocally;
 
   return (
     <Card className="space-y-3">
       <h3 className="text-sm font-semibold text-ink">Login</h3>
-      {linkedUserId ? (
+      {isLinked ? (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-neutral-600">
             Linked to {linkedLabel ?? "a user"}. After they sign in they only see their own rows.
@@ -171,26 +196,40 @@ function LoginLinkPanel({
             Unlink
           </Button>
         </div>
-      ) : options.length === 0 ? (
-        <EmptyState
-          icon={Link2}
-          title={kind === "trainer" ? "No trainer logins" : "No member logins"}
-          description="Invite a user with this role from Settings > Users & roles, then link them here."
-        />
       ) : (
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="min-w-56 flex-1">
-            <Select
-              options={options}
-              placeholder="Select a login"
-              value={userId}
-              onChange={(event) => setUserId(event.target.value)}
-            />
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-neutral-600">
+              {kind === "member"
+                ? "Create a member login. The ID is the member code. The initial password is the registered mobile number."
+                : "Create a trainer login. The ID is the trainer code. The initial password is the registered mobile number."}
+            </p>
+            <Button size="sm" onClick={() => void handleProvision()} disabled={saving}>
+              Create login
+            </Button>
           </div>
-          <Button size="sm" onClick={() => void handleLink()} disabled={!userId || saving}>
-            <Link2 aria-hidden="true" className="size-4" />
-            Link login
-          </Button>
+          {options.length === 0 ? (
+            <EmptyState
+              icon={Link2}
+              title={kind === "trainer" ? "No invited trainer logins" : "No invited member logins"}
+              description="Invite a user with this role from Settings > Users & roles to link an existing login, or create one above."
+            />
+          ) : (
+            <div className="flex flex-wrap items-end gap-3">
+              <div className="min-w-56 flex-1">
+                <Select
+                  options={options}
+                  placeholder="Select a login"
+                  value={userId}
+                  onChange={(event) => setUserId(event.target.value)}
+                />
+              </div>
+              <Button size="sm" onClick={() => void handleLink()} disabled={!userId || saving}>
+                <Link2 aria-hidden="true" className="size-4" />
+                Link login
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </Card>

@@ -28,6 +28,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     redirect("/onboarding");
   }
 
+  if (resolved.context?.mustChangePassword) {
+    redirect("/change-password");
+  }
+
   // Route-level authorization (app-level gate; RLS is the enforcement).
   const headersList = await headers();
   const pathname = headersList.get("x-pathname") ?? "/dashboard";

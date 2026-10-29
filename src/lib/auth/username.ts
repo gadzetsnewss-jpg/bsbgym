@@ -67,5 +67,40 @@ export function toInternalAuthEmail(username: string): string {
   return `${normalizeUsername(username)}@${INTERNAL_AUTH_EMAIL_DOMAIN}`;
 }
 
+export function normalizeMemberCode(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+export function normalizeTrainerCode(value: string): string {
+  return value.trim().toUpperCase();
+}
+
+export function initialPasswordFromPhone(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("91") && digits.length === 12) return digits.slice(2);
+  if (digits.length >= 8) return digits;
+  return null;
+}
+
+export function loginUsernameFromCode(code: string): string {
+  const compact = normalizeUsername(code)
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (isValidUsername(compact)) return compact;
+  const padded = `id-${compact}`.replace(/-+$/g, "").slice(0, USERNAME_MAX_LENGTH);
+  if (isValidUsername(padded)) return padded;
+  return `id${compact.replace(/[^a-z0-9]/g, "")}`.slice(0, USERNAME_MAX_LENGTH);
+}
+
+export function memberCodeToUsername(code: string): string {
+  return loginUsernameFromCode(normalizeMemberCode(code));
+}
+
+export function trainerCodeToUsername(code: string): string {
+  return loginUsernameFromCode(normalizeTrainerCode(code));
+}
+
 export const GENERIC_CREDENTIALS_MESSAGE = "Username or password is incorrect.";
+export const GENERIC_ID_CREDENTIALS_MESSAGE = "ID or password is incorrect.";
 export const USERNAME_TAKEN_MESSAGE = "This username is already taken.";

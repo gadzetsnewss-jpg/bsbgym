@@ -1,12 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   GENERIC_CREDENTIALS_MESSAGE,
+  GENERIC_ID_CREDENTIALS_MESSAGE,
   INTERNAL_AUTH_EMAIL_DOMAIN,
   USERNAME_TAKEN_MESSAGE,
+  initialPasswordFromPhone,
   isValidUsername,
+  loginUsernameFromCode,
+  memberCodeToUsername,
   normalizeContactNumber,
+  normalizeMemberCode,
+  normalizeTrainerCode,
   normalizeUsername,
   toInternalAuthEmail,
+  trainerCodeToUsername,
   usernameValidationMessage,
 } from "@/lib/auth/username";
 
@@ -62,6 +69,27 @@ describe("toInternalAuthEmail", () => {
 describe("public auth messages", () => {
   it("never includes email in credential failures", () => {
     expect(GENERIC_CREDENTIALS_MESSAGE.toLowerCase()).not.toContain("email");
+    expect(GENERIC_ID_CREDENTIALS_MESSAGE.toLowerCase()).not.toContain("email");
     expect(USERNAME_TAKEN_MESSAGE).toBe("This username is already taken.");
+  });
+});
+
+describe("portal identifiers", () => {
+  it("normalizes member and trainer codes", () => {
+    expect(normalizeMemberCode(" mem-0001 ")).toBe("MEM-0001");
+    expect(normalizeTrainerCode(" tr-12 ")).toBe("TR-12");
+  });
+
+  it("maps codes to valid usernames", () => {
+    expect(memberCodeToUsername("MEM-0001")).toBe("mem-0001");
+    expect(isValidUsername(memberCodeToUsername("MEM-0001"))).toBe(true);
+    expect(trainerCodeToUsername("TR-0001")).toBe("tr-0001");
+    expect(isValidUsername(loginUsernameFromCode("AB"))).toBe(true);
+  });
+
+  it("uses national mobile digits as the initial password", () => {
+    expect(initialPasswordFromPhone("+91 9876543210")).toBe("9876543210");
+    expect(initialPasswordFromPhone("98765 43210")).toBe("9876543210");
+    expect(initialPasswordFromPhone("123")).toBeNull();
   });
 });

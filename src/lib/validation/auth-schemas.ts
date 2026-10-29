@@ -63,6 +63,17 @@ export const loginSchema = z.object({
   password: z.string().min(1, "Password is required"),
 });
 
+export const PORTAL_ROLES = ["owner", "trainer", "member"] as const;
+export type PortalRole = (typeof PORTAL_ROLES)[number];
+
+const loginIdSchema = z.string().trim().min(1, "ID is required");
+
+export const portalLoginSchema = z.object({
+  id: loginIdSchema,
+  password: z.string().min(1, "Password is required"),
+  portal: z.enum(PORTAL_ROLES),
+});
+
 export const signUpSchema = z
   .object({
     username: usernameSchema,
@@ -88,6 +99,8 @@ export const resetPasswordSchema = z
     message: "Passwords do not match",
     path: ["confirmPassword"],
   });
+
+export const changePasswordSchema = resetPasswordSchema;
 
 /* ---------------------------------------------------------------------------
    Organization onboarding
