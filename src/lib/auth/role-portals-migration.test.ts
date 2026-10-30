@@ -61,10 +61,11 @@ describe("role portal app surface", () => {
     expect(signInRoute).not.toMatch(/userId:/);
   });
 
-  it("creates logins with the registered mobile as the initial password only", () => {
+  it("creates logins through Auth and never stores plaintext passwords", () => {
     expect(provisionRoute).toMatch(/initialPasswordFromPhone/);
     expect(provisionRoute).toMatch(/admin\.auth\.admin\.createUser/);
     expect(provisionRoute).toMatch(/provision_linked_login/);
+    expect(provisionRoute).toMatch(/parsed\.data\.password/);
     expect(provisionRoute).not.toMatch(/plaintext/);
   });
 });

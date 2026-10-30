@@ -27,14 +27,25 @@ function humanLabel(value: string) {
 }
 
 export function trainerDetailExtras(row: TrainerRow) {
-  return <TrainerDetailExtras trainerId={row.id} linkedUserId={row.userId} />;
+  return (
+    <TrainerDetailExtras
+      trainerId={row.id}
+      trainerName={row.fullName}
+      trainerCode={row.code}
+      linkedUserId={row.userId}
+    />
+  );
 }
 
 function TrainerDetailExtras({
   trainerId,
+  trainerName,
+  trainerCode,
   linkedUserId,
 }: {
   trainerId: string;
+  trainerName: string;
+  trainerCode: string | null;
   linkedUserId: string | null;
 }) {
   const { organization, can } = useOrganization();
@@ -83,13 +94,22 @@ function TrainerDetailExtras({
   }, [load]);
 
   if (!canView) return null;
-  if (error) return <ErrorState description={error} onRetry={() => void load()} />;
-  if (loading) return <LoadingState label="Loading trainer activity…" />;
 
   return (
     <div className="space-y-6">
-      <TrainerLoginLinkPanel trainerId={trainerId} linkedUserId={linkedUserId} />
+      <TrainerLoginLinkPanel
+        trainerId={trainerId}
+        trainerName={trainerName}
+        trainerCode={trainerCode}
+        linkedUserId={linkedUserId}
+      />
 
+      {error ? (
+        <ErrorState description={error} onRetry={() => void load()} />
+      ) : loading ? (
+        <LoadingState label="Loading trainer activity…" />
+      ) : (
+        <>
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-ink">Assigned members</h3>
@@ -184,6 +204,8 @@ function TrainerDetailExtras({
           ))
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

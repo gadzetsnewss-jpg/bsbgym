@@ -102,6 +102,43 @@ export const resetPasswordSchema = z
 
 export const changePasswordSchema = resetPasswordSchema;
 
+export const ownerSetLoginPasswordSchema = resetPasswordSchema;
+
+export const provisionLoginBodySchema = z
+  .object({
+    kind: z.enum(["trainer", "member"]),
+    recordId: z.string().uuid(),
+    password: z.string().optional(),
+    confirmPassword: z.string().optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.password === undefined && values.confirmPassword === undefined) return;
+    const parsed = ownerSetLoginPasswordSchema.safeParse({
+      password: values.password ?? "",
+      confirmPassword: values.confirmPassword ?? "",
+    });
+    if (parsed.success) return;
+    for (const issue of parsed.error.issues) {
+      ctx.addIssue({
+        code: "custom",
+        message: issue.message,
+        path: issue.path,
+      });
+    }
+  });
+
+export const resetLinkedLoginPasswordSchema = z
+  .object({
+    kind: z.enum(["trainer", "member"]),
+    recordId: z.string().uuid(),
+    password: strongPasswordSchema,
+    confirmPassword: z.string(),
+  })
+  .refine((values) => values.password === values.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
+
 /* ---------------------------------------------------------------------------
    Organization onboarding
    --------------------------------------------------------------------------- */

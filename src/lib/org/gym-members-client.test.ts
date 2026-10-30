@@ -74,6 +74,14 @@ describe("gym members client", () => {
     expect(client).toMatch(/export async function fetchLinkedGymMemberId/);
     expect(client).toMatch(/\.eq\("user_id" as "id", userId\)/);
   });
+
+  it("provisions and resets logins through server APIs, not client Auth", () => {
+    expect(client).toMatch(/fetch\("\/api\/org\/provision-login"/);
+    expect(client).toMatch(/fetch\("\/api\/org\/reset-login-password"/);
+    expect(client).toMatch(/export async function resetLinkedLoginPassword/);
+    expect(client).not.toMatch(/updateUserById/);
+    expect(client).not.toMatch(/createUser/);
+  });
 });
 
 describe("update_gym_member trainer preservation patch", () => {

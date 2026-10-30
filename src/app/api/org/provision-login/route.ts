@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
 import {
@@ -10,11 +9,7 @@ import {
   USERNAME_TAKEN_MESSAGE,
 } from "@/lib/auth/username";
 import { friendlyMessage } from "@/lib/errors";
-
-const bodySchema = z.object({
-  kind: z.enum(["trainer", "member"]),
-  recordId: z.string().uuid(),
-});
+import { provisionLoginBodySchema } from "@/lib/validation/auth-schemas";
 
 export async function POST(request: Request) {
   if (!isSupabaseConfigured) {
@@ -28,9 +23,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Please check your details and try again." }, { status: 400 });
   }
 
-  const parsed = bodySchema.safeParse(body);
+  const parsed = provisionLoginBodySchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: "Please check your details and try again." }, { status: 400 });
+    const message =
+      parsed.error.issues.find((issue) => issue.path[0] === "confirmPassword")?.message ||
+      parsed.error.issues.find((issue) => issue.path[0] === "password")?.message ||
+      "Please check your details and try again.";
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
   const supabase = await createServerSupabase();
@@ -89,10 +88,17 @@ export async function POST(request: Request) {
   }
 
   const phone = typeof record.phone === "string" ? record.phone : "";
-  const password = initialPasswordFromPhone(phone);
+  const ownerSetPassword = Boolean(parsed.data.password);
+  const password = ownerSetPassword
+    ? parsed.data.password!
+    : initialPasswordFromPhone(phone);
   if (!password) {
     return NextResponse.json(
-      { error: "A registered mobile number is required to create a login." },
+      {
+        error: ownerSetPassword
+          ? "Please check your details and try again."
+          : "A registered mobile number is required to create a login.",
+      },
       { status: 400 },
     );
   }
@@ -143,6 +149,10 @@ export async function POST(request: Request) {
   if (provisionError) {
     await admin.auth.admin.deleteUser(createdUserId);
     return NextResponse.json({ error: friendlyMessage(provisionError) }, { status: 400 });
+  }
+
+  if (ownerSetPassword) {
+    await admin.rpc("complete_password_change", { p_user_id: createdUserId });
   }
 
   return NextResponse.json({ ok: true, loginId: code.toUpperCase() });

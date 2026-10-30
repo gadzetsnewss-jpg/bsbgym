@@ -790,12 +790,19 @@ export async function unlinkGymMemberUser(memberId: string): Promise<OrgResult> 
 export async function provisionLinkedLogin(
   kind: "trainer" | "member",
   recordId: string,
+  credentials?: { password: string; confirmPassword: string },
 ): Promise<OrgResult<{ loginId: string }>> {
   try {
     const response = await fetch("/api/org/provision-login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, recordId }),
+      body: JSON.stringify({
+        kind,
+        recordId,
+        ...(credentials
+          ? { password: credentials.password, confirmPassword: credentials.confirmPassword }
+          : {}),
+      }),
     });
     const payload = (await response.json()) as { ok?: boolean; loginId?: string; error?: string };
     if (!response.ok || !payload.ok || !payload.loginId) {
@@ -805,6 +812,31 @@ export async function provisionLinkedLogin(
       };
     }
     return { data: { loginId: payload.loginId }, error: null };
+  } catch {
+    return { data: null, error: { message: "Something went wrong. Please try again." } };
+  }
+}
+
+export async function resetLinkedLoginPassword(
+  kind: "trainer" | "member",
+  recordId: string,
+  password: string,
+  confirmPassword: string,
+): Promise<OrgResult> {
+  try {
+    const response = await fetch("/api/org/reset-login-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind, recordId, password, confirmPassword }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !payload.ok) {
+      return {
+        data: null,
+        error: { message: payload.error || "Unable to update password right now." },
+      };
+    }
+    return { data: undefined, error: null };
   } catch {
     return { data: null, error: { message: "Something went wrong. Please try again." } };
   }

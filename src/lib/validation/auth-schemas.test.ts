@@ -9,6 +9,8 @@ import {
   signUpSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  provisionLoginBodySchema,
+  resetLinkedLoginPasswordSchema,
   accountSchema,
   businessInfoSchema,
   branchSchema,
@@ -181,6 +183,62 @@ describe("resetPasswordSchema", () => {
     if (!result.success) {
       expect(result.error.issues.some((i) => i.path[0] === "confirmPassword")).toBe(true);
     }
+  });
+});
+
+describe("provisionLoginBodySchema", () => {
+  const recordId = "11111111-1111-4111-8111-111111111111";
+
+  it("accepts create-login without an owner-set password", () => {
+    expect(
+      provisionLoginBodySchema.safeParse({ kind: "trainer", recordId }).success,
+    ).toBe(true);
+  });
+
+  it("accepts a matching owner-set password", () => {
+    expect(
+      provisionLoginBodySchema.safeParse({
+        kind: "trainer",
+        recordId,
+        password: "Trainer1pass",
+        confirmPassword: "Trainer1pass",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects mismatched owner-set passwords", () => {
+    const result = provisionLoginBodySchema.safeParse({
+      kind: "trainer",
+      recordId,
+      password: "Trainer1pass",
+      confirmPassword: "OtherPass123",
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("resetLinkedLoginPasswordSchema", () => {
+  const recordId = "11111111-1111-4111-8111-111111111111";
+
+  it("accepts a matching password for a trainer record", () => {
+    expect(
+      resetLinkedLoginPasswordSchema.safeParse({
+        kind: "trainer",
+        recordId,
+        password: "Trainer1pass",
+        confirmPassword: "Trainer1pass",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects a weak password", () => {
+    const result = resetLinkedLoginPasswordSchema.safeParse({
+      kind: "trainer",
+      recordId,
+      password: "short",
+      confirmPassword: "short",
+    });
+    expect(result.success).toBe(false);
   });
 });
 

@@ -18,6 +18,9 @@ const signInRoute = read("src/app/api/auth/sign-in/route.ts");
 const session = read("src/lib/auth/session.ts");
 const profile = read("src/lib/auth/profile.ts");
 const types = read("src/lib/supabase/types.ts");
+const resetLoginRoute = read("src/app/api/org/reset-login-password/route.ts");
+const loginPanel = read("src/components/org/login-link-panel.tsx");
+const trainerExtras = read("src/components/trainers/trainer-detail-extras.tsx");
 
 describe("sign-in response", () => {
   it("does not return a user id to the browser", () => {
@@ -52,5 +55,27 @@ describe("profile write surface", () => {
     expect(updateBlock).not.toMatch(/username/);
     expect(updateBlock).not.toMatch(/email/);
     expect(updateBlock).not.toMatch(/must_change_password/);
+  });
+});
+
+describe("owner trainer login access", () => {
+  it("resets the Auth password server-side after users.manage and org-scoped lookup", () => {
+    expect(resetLoginRoute).toMatch(/PERMISSIONS\.users\.manage/);
+    expect(resetLoginRoute).toMatch(/admin\.auth\.admin\.updateUserById/);
+    expect(resetLoginRoute).toMatch(/complete_password_change/);
+    expect(resetLoginRoute).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
+    expect(resetLoginRoute).not.toMatch(/plaintext/);
+  });
+
+  it("shows Login Access create and reset controls on trainer detail", () => {
+    expect(trainerExtras).toMatch(/TrainerLoginLinkPanel/);
+    expect(trainerExtras).toMatch(/trainerCode=\{row\.code\}/);
+    expect(loginPanel).toMatch(/Login Access/);
+    expect(loginPanel).toMatch(/Login Not Created/);
+    expect(loginPanel).toMatch(/Login Active/);
+    expect(loginPanel).toMatch(/Create Trainer Login/);
+    expect(loginPanel).toMatch(/Reset Password/);
+    expect(loginPanel).toMatch(/Update Password/);
+    expect(loginPanel).toMatch(/users\.manage/);
   });
 });
