@@ -67,6 +67,10 @@ export function toInternalAuthEmail(username: string): string {
   return `${normalizeUsername(username)}@${INTERNAL_AUTH_EMAIL_DOMAIN}`;
 }
 
+export function normalizeGymCode(value: string): string {
+  return value.trim().toLowerCase();
+}
+
 export function normalizeMemberCode(value: string): string {
   return value.trim().toUpperCase();
 }

@@ -38,7 +38,12 @@ interface AuthContextValue {
   user: SessionUser | null;
   /** False when no Supabase project is configured (preview mode). */
   configured: boolean;
-  signIn: (username: string, password: string, portal?: PortalRole) => Promise<AuthResult>;
+  signIn: (
+    username: string,
+    password: string,
+    portal?: PortalRole,
+    gymCode?: string,
+  ) => Promise<AuthResult>;
   completePasswordChange: (password: string, confirmPassword: string) => Promise<AuthResult>;
   signUp: (input: SignUpInput) => Promise<{ data: SignUpResult | null; error: { message: string } | null }>;
   signOut: () => Promise<AuthResult>;
@@ -102,8 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       status,
       user,
       configured: isSupabaseConfigured,
-      signIn: async (username, password, portal) => {
-        const result = await signInWithPassword(username, password, portal);
+      signIn: async (username, password, portal, gymCode) => {
+        const result = await signInWithPassword(username, password, portal, gymCode);
         return result.error ? { error: { message: result.error.message } } : { error: null };
       },
       completePasswordChange: async (password, confirmPassword) => {

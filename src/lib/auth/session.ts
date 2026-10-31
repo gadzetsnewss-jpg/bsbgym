@@ -92,6 +92,7 @@ export async function signInWithPassword(
   username: string,
   password: string,
   portal?: PortalRole,
+  gymCode?: string,
 ): Promise<AuthResult> {
   if (!getSupabaseBrowserClient()) {
     return { data: null, error: { message: "Supabase is not configured." } };
@@ -102,7 +103,9 @@ export async function signInWithPassword(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(
-        portal ? { id: username, password, portal } : { username, password },
+        portal
+          ? { id: username, password, portal, ...(gymCode ? { gymCode } : {}) }
+          : { username, password },
       ),
     });
     const payload = (await response.json()) as { ok?: boolean; error?: string };

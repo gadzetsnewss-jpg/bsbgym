@@ -348,6 +348,8 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
             <div className="lg:col-span-3">
               <MemberLoginLinkPanel
                 memberId={member.id}
+                memberName={member.fullName}
+                memberCode={member.code}
                 linkedUserId={member.userId}
                 onChanged={() => void load()}
               />

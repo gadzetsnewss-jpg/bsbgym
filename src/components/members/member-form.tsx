@@ -35,6 +35,7 @@ import {
   updateGymMember,
   type GymMemberWriteInput,
 } from "@/lib/org/gym-members";
+import { MemberLoginLinkPanel } from "@/components/org/login-link-panel";
 import {
   GYM_MEMBER_GENDERS,
   gymMemberFormSchema,
@@ -126,6 +127,9 @@ export function MemberForm({ mode, memberId }: MemberFormProps) {
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
   const [trainerName, setTrainerName] = React.useState<string | null>(null);
+  const [memberCode, setMemberCode] = React.useState<string | null>(null);
+  const [memberFullName, setMemberFullName] = React.useState("");
+  const [linkedUserId, setLinkedUserId] = React.useState<string | null>(null);
   const [savedMemberId, setSavedMemberId] = React.useState<string | null>(null);
   const [leaveOpen, setLeaveOpen] = React.useState(false);
 
@@ -155,6 +159,9 @@ export function MemberForm({ mode, memberId }: MemberFormProps) {
       setValues(next);
       setInitialValues(next);
       setTrainerName(result.data.assignedTrainerName);
+      setMemberCode(result.data.code);
+      setMemberFullName(result.data.fullName);
+      setLinkedUserId(result.data.userId);
     });
     return () => {
       cancelled = true;
@@ -468,6 +475,24 @@ export function MemberForm({ mode, memberId }: MemberFormProps) {
           </Button>
         </div>
       </form>
+
+      {mode === "edit" && memberId && (
+        <MemberLoginLinkPanel
+          memberId={memberId}
+          memberName={memberFullName || `${values.firstName} ${values.lastName}`.trim()}
+          memberCode={memberCode}
+          linkedUserId={linkedUserId}
+          onChanged={() => {
+            if (!orgId || !memberId) return;
+            void fetchGymMember(orgId, memberId).then((result) => {
+              if (result.error) return;
+              setMemberCode(result.data.code);
+              setMemberFullName(result.data.fullName);
+              setLinkedUserId(result.data.userId);
+            });
+          }}
+        />
+      )}
 
       <ConfirmDialog
         open={leaveOpen}

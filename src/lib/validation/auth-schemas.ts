@@ -68,11 +68,33 @@ export type PortalRole = (typeof PORTAL_ROLES)[number];
 
 const loginIdSchema = z.string().trim().min(1, "ID is required");
 
-export const portalLoginSchema = z.object({
-  id: loginIdSchema,
-  password: z.string().min(1, "Password is required"),
-  portal: z.enum(PORTAL_ROLES),
-});
+const gymCodeSchema = z
+  .string()
+  .trim()
+  .min(1, "Gym code is required")
+  .transform((value) => value.toLowerCase());
+
+export const portalLoginSchema = z
+  .object({
+    id: loginIdSchema,
+    password: z.string().min(1, "Password is required"),
+    portal: z.enum(PORTAL_ROLES),
+    gymCode: z
+      .string()
+      .trim()
+      .transform((value) => value.toLowerCase())
+      .optional(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.portal !== "trainer" && values.portal !== "member") return;
+    const gym = gymCodeSchema.safeParse(values.gymCode ?? "");
+    if (gym.success) return;
+    ctx.addIssue({
+      code: "custom",
+      message: "Gym code is required",
+      path: ["gymCode"],
+    });
+  });
 
 export const signUpSchema = z
   .object({

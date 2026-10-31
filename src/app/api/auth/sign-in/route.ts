@@ -4,6 +4,7 @@ import { isSupabaseConfigured } from "@/lib/env";
 import {
   GENERIC_CREDENTIALS_MESSAGE,
   GENERIC_ID_CREDENTIALS_MESSAGE,
+  normalizeGymCode,
   normalizeUsername,
 } from "@/lib/auth/username";
 import { loginSchema, portalLoginSchema, type PortalRole } from "@/lib/validation/auth-schemas";
@@ -25,33 +26,40 @@ async function lookupEmail(
   admin: NonNullable<Awaited<ReturnType<typeof createServerSupabaseAdmin>>>,
   portal: PortalRole | null,
   identifier: string,
+  gymCode: string | null,
 ): Promise<Lookup> {
-  if (portal === "member") {
-    const byCode = await admin.rpc("auth_email_for_member_code", { p_code: identifier });
+  if (portal === "member" || portal === "trainer") {
+    if (!gymCode) return { email: null, error: false };
+    const byCode =
+      portal === "member"
+        ? await admin.rpc("auth_email_for_member_code", {
+            p_gym_code: gymCode,
+            p_code: identifier,
+          })
+        : await admin.rpc("auth_email_for_trainer_code", {
+            p_gym_code: gymCode,
+            p_code: identifier,
+          });
     if (byCode.error) return { email: null, error: true };
-    if (byCode.data) return { email: byCode.data, error: false };
-  }
-  if (portal === "trainer") {
-    const byCode = await admin.rpc("auth_email_for_trainer_code", { p_code: identifier });
-    if (byCode.error) return { email: null, error: true };
-    if (byCode.data) return { email: byCode.data, error: false };
+    return { email: byCode.data ?? null, error: false };
   }
   return lookupByUsername(admin, identifier);
 }
 
-async function roleSlugForUser(
+async function membershipForUser(
   admin: NonNullable<Awaited<ReturnType<typeof createServerSupabaseAdmin>>>,
   uid: string,
-): Promise<string | null> {
+): Promise<{ roleSlug: string | null; orgSlug: string | null }> {
   const { data, error } = await admin
     .from("organization_members")
-    .select("roles(slug)")
+    .select("roles(slug), organizations(slug)")
     .eq("user_id", uid)
     .eq("status", "active")
     .maybeSingle();
-  if (error || !data) return null;
+  if (error || !data) return { roleSlug: null, orgSlug: null };
   const role = data.roles as unknown as { slug: string } | null;
-  return role?.slug ?? null;
+  const org = data.organizations as unknown as { slug: string } | null;
+  return { roleSlug: role?.slug ?? null, orgSlug: org?.slug ?? null };
 }
 
 export async function POST(request: Request) {
@@ -79,9 +87,16 @@ export async function POST(request: Request) {
     : legacyParsed.success
       ? legacyParsed.data.password
       : null;
+  const gymCode =
+    portalParsed.success && (portal === "trainer" || portal === "member")
+      ? normalizeGymCode(portalParsed.data.gymCode ?? "")
+      : null;
   const failMessage = portal ? GENERIC_ID_CREDENTIALS_MESSAGE : GENERIC_CREDENTIALS_MESSAGE;
 
   if (!identifier || !password) {
+    return NextResponse.json({ error: failMessage }, { status: 400 });
+  }
+  if ((portal === "trainer" || portal === "member") && !gymCode) {
     return NextResponse.json({ error: failMessage }, { status: 400 });
   }
 
@@ -94,7 +109,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to sign in right now." }, { status: 503 });
   }
 
-  const lookup = await lookupEmail(admin, portal, identifier);
+  const lookup = await lookupEmail(admin, portal, identifier, gymCode);
   if (lookup.error) {
     return NextResponse.json({ error: "Unable to sign in right now." }, { status: 503 });
   }
@@ -112,8 +127,16 @@ export async function POST(request: Request) {
   }
 
   if (portal) {
-    const slug = await roleSlugForUser(admin, data.user.id);
-    if (!roleMatchesPortal(slug, portal)) {
+    const membership = await membershipForUser(admin, data.user.id);
+    if (!roleMatchesPortal(membership.roleSlug, portal)) {
+      await supabase.auth.signOut();
+      return NextResponse.json({ error: failMessage }, { status: 401 });
+    }
+    if (
+      (portal === "trainer" || portal === "member") &&
+      gymCode &&
+      normalizeGymCode(membership.orgSlug ?? "") !== gymCode
+    ) {
       await supabase.auth.signOut();
       return NextResponse.json({ error: failMessage }, { status: 401 });
     }

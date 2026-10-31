@@ -21,6 +21,9 @@ const types = read("src/lib/supabase/types.ts");
 const resetLoginRoute = read("src/app/api/org/reset-login-password/route.ts");
 const loginPanel = read("src/components/org/login-link-panel.tsx");
 const trainerExtras = read("src/components/trainers/trainer-detail-extras.tsx");
+const memberDetail = read("src/components/members/member-detail.tsx");
+const memberForm = read("src/components/members/member-form.tsx");
+const addMemberForm = read("src/components/members/add-member-form.tsx");
 
 describe("sign-in response", () => {
   it("does not return a user id to the browser", () => {
@@ -77,5 +80,18 @@ describe("owner trainer login access", () => {
     expect(loginPanel).toMatch(/Reset Password/);
     expect(loginPanel).toMatch(/Update Password/);
     expect(loginPanel).toMatch(/users\.manage/);
+  });
+});
+
+describe("owner member login access", () => {
+  it("matches trainer Login Access on member detail and edit", () => {
+    expect(memberDetail).toMatch(/MemberLoginLinkPanel/);
+    expect(memberDetail).toMatch(/memberCode=\{member\.code\}/);
+    expect(memberForm).toMatch(/MemberLoginLinkPanel/);
+    expect(memberForm).toMatch(/mode === "edit" && memberId/);
+    expect(addMemberForm).not.toMatch(/MemberLoginLinkPanel/);
+    expect(loginPanel).toMatch(/Create Member Login/);
+    expect(loginPanel).toMatch(/memberName/);
+    expect(loginPanel).toMatch(/memberCode/);
   });
 });

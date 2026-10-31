@@ -1412,11 +1412,11 @@ export interface Database {
         Returns: string | null;
       };
       auth_email_for_member_code: {
-        Args: { p_code: string };
+        Args: { p_gym_code: string; p_code: string };
         Returns: string | null;
       };
       auth_email_for_trainer_code: {
-        Args: { p_code: string };
+        Args: { p_gym_code: string; p_code: string };
         Returns: string | null;
       };
       provision_linked_login: {

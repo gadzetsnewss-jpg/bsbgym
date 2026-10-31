@@ -59,10 +59,14 @@ export function TrainerLoginLinkPanel({
 
 export function MemberLoginLinkPanel({
   memberId,
+  memberName,
+  memberCode,
   linkedUserId,
   onChanged,
 }: {
   memberId: string;
+  memberName: string;
+  memberCode: string | null;
   linkedUserId: string | null;
   onChanged?: () => void;
 }) {
@@ -70,6 +74,8 @@ export function MemberLoginLinkPanel({
     <LoginLinkPanel
       kind="member"
       recordId={memberId}
+      displayName={memberName}
+      loginId={memberCode}
       linkedUserId={linkedUserId}
       onChanged={onChanged}
     />
@@ -248,15 +254,6 @@ function LoginLinkPanel({
         fallback: row.email,
       }),
     }));
-  const linked = members.find((row) => row.userId === linkedUserId);
-  const linkedLabel = linked
-    ? displayName({
-        firstName: linked.firstName,
-        lastName: linked.lastName,
-        fallback: linked.email,
-      })
-    : null;
-
   const handleLink = async () => {
     if (!userId) return;
     setSaving(true);
@@ -310,26 +307,6 @@ function LoginLinkPanel({
     onChanged?.();
   };
 
-  const handleProvisionDefault = async () => {
-    setSaving(true);
-    const result = await provisionLinkedLogin(kind, recordId);
-    setSaving(false);
-    if (result.error) {
-      toast({ title: "Could not create login", description: result.error.message, variant: "error" });
-      return;
-    }
-    toast({
-      title: "Login created",
-      description:
-        kind === "member"
-          ? `Sign in at /member/login with ${result.data.loginId}. The initial password is the registered mobile number.`
-          : `Sign in at /trainer/login with ${result.data.loginId}. The initial password is the registered mobile number.`,
-      variant: "success",
-    });
-    setLocalLinked(true);
-    onChanged?.();
-  };
-
   const handleResetPassword = async (values: PasswordValues) => {
     setSaving(true);
     const result = await resetLinkedLoginPassword(
@@ -357,29 +334,29 @@ function LoginLinkPanel({
   const isLinked = localLinked ?? Boolean(linkedUserId);
   const resolvedLoginId = (loginId ?? "").trim().toUpperCase();
   const resolvedName = recordDisplayName?.trim() || (kind === "trainer" ? "Trainer" : "Member");
-  const title = kind === "trainer" ? "Login Access" : "Login";
+  const createLabel = kind === "trainer" ? "Create Trainer Login" : "Create Member Login";
+  const missingCodeHint =
+    kind === "trainer"
+      ? "Add a trainer code before creating a login. The trainer uses that code as their ID at /trainer/login."
+      : "A member code is required before creating a login. The member uses that code as their ID at /member/login.";
 
   return (
     <Card className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        {kind === "trainer" && (
-          <Badge tone={isLinked ? "success" : "warning"} withDot>
-            {isLinked ? "Login Active" : "Login Not Created"}
-          </Badge>
-        )}
+        <h3 className="text-sm font-semibold text-ink">Login Access</h3>
+        <Badge tone={isLinked ? "success" : "warning"} withDot>
+          {isLinked ? "Login Active" : "Login Not Created"}
+        </Badge>
       </div>
 
       {isLinked ? (
         <div className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-neutral-600">
-              {kind === "trainer"
-                ? `Login is active${resolvedLoginId ? ` for ${resolvedLoginId}` : ""}. After they sign in they only see their own rows.`
-                : `Linked to ${linkedLabel ?? "a user"}. After they sign in they only see their own rows.`}
+              Login is active{resolvedLoginId ? ` for ${resolvedLoginId}` : ""}. After they sign in they only see their own rows.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-              {kind === "trainer" && !showResetForm && (
+              {!showResetForm && (
                 <Button size="sm" onClick={() => setShowResetForm(true)} disabled={saving}>
                   Reset Password
                 </Button>
@@ -390,7 +367,7 @@ function LoginLinkPanel({
               </Button>
             </div>
           </div>
-          {kind === "trainer" && showResetForm && (
+          {showResetForm && (
             <LoginPasswordForm
               kind={kind}
               displayLabel={resolvedName}
@@ -402,60 +379,25 @@ function LoginLinkPanel({
             />
           )}
         </div>
-      ) : kind === "trainer" ? (
+      ) : (
         <div className="space-y-4">
           {resolvedLoginId ? (
             <LoginPasswordForm
               kind={kind}
               displayLabel={resolvedName}
               loginId={resolvedLoginId}
-              submitLabel="Create Trainer Login"
+              submitLabel={createLabel}
               saving={saving}
               onSubmit={handleProvisionWithPassword}
             />
           ) : (
-            <p className="text-sm text-neutral-600">
-              Add a trainer code before creating a login. The trainer uses that code as their ID at /trainer/login.
-            </p>
+            <p className="text-sm text-neutral-600">{missingCodeHint}</p>
           )}
           {options.length === 0 ? (
             <EmptyState
               icon={Link2}
-              title="No invited trainer logins"
-              description="Invite a user with this role from Settings > Users & roles to link an existing login, or create one above."
-            />
-          ) : (
-            <div className="flex flex-wrap items-end gap-3">
-              <div className="min-w-56 flex-1">
-                <Select
-                  options={options}
-                  placeholder="Select a login"
-                  value={userId}
-                  onChange={(event) => setUserId(event.target.value)}
-                />
-              </div>
-              <Button size="sm" onClick={() => void handleLink()} disabled={!userId || saving}>
-                <Link2 aria-hidden="true" className="size-4" />
-                Link login
-              </Button>
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-neutral-600">
-              Create a member login. The ID is the member code. The initial password is the registered mobile number.
-            </p>
-            <Button size="sm" onClick={() => void handleProvisionDefault()} disabled={saving}>
-              Create login
-            </Button>
-          </div>
-          {options.length === 0 ? (
-            <EmptyState
-              icon={Link2}
-              title="No invited member logins"
-              description="Invite a user with this role from Settings > Users & roles to link an existing login, or create one above."
+              title={kind === "trainer" ? "No invited trainer logins" : "No invited member logins"}
+              description={`Invite a user with this role from Settings > Users & roles to link an existing login, or create one above.`}
             />
           ) : (
             <div className="flex flex-wrap items-end gap-3">

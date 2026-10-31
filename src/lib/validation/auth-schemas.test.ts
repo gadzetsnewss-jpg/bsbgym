@@ -51,13 +51,55 @@ describe("loginSchema", () => {
 });
 
 describe("portalLoginSchema", () => {
-  it("accepts member code login without an email field", () => {
+  it("accepts member code login with gym code and without an email field", () => {
     const result = portalLoginSchema.safeParse({
       id: "MEM-0001",
       password: "9876543210",
       portal: "member",
+      gymCode: "  Acme-Gym ",
     });
     expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.gymCode).toBe("acme-gym");
+    }
+  });
+
+  it("accepts trainer login with gym code", () => {
+    const result = portalLoginSchema.safeParse({
+      id: "TR-0001",
+      password: "secret99",
+      portal: "trainer",
+      gymCode: "acme-gym",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("accepts owner login without gym code", () => {
+    expect(
+      portalLoginSchema.safeParse({
+        id: "owner.one",
+        password: "secret",
+        portal: "owner",
+      }).success,
+    ).toBe(true);
+  });
+
+  it("rejects trainer or member login without gym code", () => {
+    expect(
+      portalLoginSchema.safeParse({
+        id: "MEM-0001",
+        password: "9876543210",
+        portal: "member",
+      }).success,
+    ).toBe(false);
+    expect(
+      portalLoginSchema.safeParse({
+        id: "TR-0001",
+        password: "secret99",
+        portal: "trainer",
+        gymCode: "  ",
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects a missing portal", () => {

@@ -24,13 +24,13 @@ const COPY: Record<
   },
   trainer: {
     title: "Trainer sign in",
-    description: "Sign in with your trainer ID and password.",
+    description: "Enter your gym code, trainer ID and password.",
     idLabel: "Trainer ID",
     idPlaceholder: "TR-0001",
   },
   member: {
     title: "Member sign in",
-    description: "Sign in with your member code and password.",
+    description: "Enter your gym code, member code and password.",
     idLabel: "Member Code",
     idPlaceholder: "MEM-0001",
   },
@@ -41,14 +41,23 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
   const router = useRouter();
   const { configured, signIn } = useAuth();
   const next = useQueryParam("next");
+  const gymFromQuery = useQueryParam("gym");
   const copy = COPY[portal];
+  const needsGym = portal === "trainer" || portal === "member";
 
-  const [values, setValues] = React.useState({ id: "", password: "" });
-  const [errors, setErrors] = React.useState<Partial<Record<"id" | "password", string>>>({});
+  const [values, setValues] = React.useState({ gymCode: "", id: "", password: "" });
+  const [errors, setErrors] = React.useState<Partial<Record<"gymCode" | "id" | "password", string>>>(
+    {},
+  );
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
 
-  const setField = (field: "id" | "password", value: string) => {
+  React.useEffect(() => {
+    if (!needsGym || !gymFromQuery) return;
+    setValues((prev) => (prev.gymCode ? prev : { ...prev, gymCode: gymFromQuery }));
+  }, [gymFromQuery, needsGym]);
+
+  const setField = (field: "gymCode" | "id" | "password", value: string) => {
     setValues((prev) => ({ ...prev, [field]: value }));
     setErrors((prev) => (prev[field] ? { ...prev, [field]: undefined } : prev));
     setFormError(null);
@@ -58,12 +67,17 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
     event.preventDefault();
     if (!configured || submitting) return;
 
-    const parsed = portalLoginSchema.safeParse({ ...values, portal });
+    const parsed = portalLoginSchema.safeParse({
+      id: values.id,
+      password: values.password,
+      portal,
+      ...(needsGym ? { gymCode: values.gymCode } : {}),
+    });
     if (!parsed.success) {
-      const fieldErrors: Partial<Record<"id" | "password", string>> = {};
+      const fieldErrors: Partial<Record<"gymCode" | "id" | "password", string>> = {};
       for (const issue of parsed.error.issues) {
         const key = issue.path[0];
-        if ((key === "id" || key === "password") && !fieldErrors[key]) {
+        if ((key === "gymCode" || key === "id" || key === "password") && !fieldErrors[key]) {
           fieldErrors[key] = issue.message;
         }
       }
@@ -74,7 +88,12 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
     setSubmitting(true);
     setFormError(null);
 
-    const result = await signIn(parsed.data.id, parsed.data.password, portal);
+    const result = await signIn(
+      parsed.data.id,
+      parsed.data.password,
+      portal,
+      needsGym ? parsed.data.gymCode : undefined,
+    );
     setSubmitting(false);
 
     if (result.error) {
@@ -99,6 +118,24 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
       {!configured && <NotConfiguredNotice className="mb-5" />}
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {needsGym && (
+          <FormField
+            label="Gym code"
+            required
+            hint="Your gym workspace slug from Settings > Organization."
+            error={errors.gymCode}
+          >
+            <Input
+              autoComplete="organization"
+              placeholder="your-gym"
+              invalid={Boolean(errors.gymCode)}
+              value={values.gymCode}
+              onChange={(event) => setField("gymCode", event.target.value)}
+              disabled={!configured}
+            />
+          </FormField>
+        )}
+
         <FormField label={copy.idLabel} required error={errors.id}>
           <Input
             autoComplete="username"
