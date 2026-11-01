@@ -80,6 +80,10 @@ export interface AppContextData {
   currentBranchId: string | null;
   /** Trusted backend flag; members must change the initial mobile password. */
   mustChangePassword: boolean;
+  /** True when Auth email is a confirmed, deliverable recovery address. */
+  recoveryEmailEnrolled: boolean;
+  /** Masked Auth recovery email for Owner settings, never the raw address when synthetic. */
+  recoveryEmailMasked: string | null;
 }
 
 export interface AuthPageSearchParams {

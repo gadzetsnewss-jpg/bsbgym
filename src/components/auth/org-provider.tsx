@@ -62,6 +62,8 @@ interface OrgContextValue {
   hasRole: (roleSlugs: readonly string[]) => boolean;
   isAdmin: boolean;
   isOwner: boolean;
+  recoveryEmailEnrolled: boolean;
+  recoveryEmailMasked: string | null;
   /** Updates the cached profile after an edit (e.g. profile page). */
   updateProfileLocal: (profile: AppContextData["profile"]) => void;
   /** Updates the cached organization after an edit (e.g. organization settings). */
@@ -182,6 +184,8 @@ export function OrgProvider({ initial, children }: OrgProviderProps) {
       hasRole: (roleSlugs) => hasRole(context?.member.roleSlug, roleSlugs),
       isAdmin: isAdminRole(context?.member.roleSlug),
       isOwner: isOwnerRole(context?.member.roleSlug),
+      recoveryEmailEnrolled: Boolean(context?.recoveryEmailEnrolled),
+      recoveryEmailMasked: context?.recoveryEmailMasked ?? null,
       updateProfileLocal,
       updateOrganizationLocal,
       updateBranchesLocal,

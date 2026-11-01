@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
 import {
+  EMAIL_NOT_CONFIRMED_MESSAGE,
   GENERIC_CREDENTIALS_MESSAGE,
   GENERIC_ID_CREDENTIALS_MESSAGE,
   normalizeGymCode,
@@ -123,6 +124,9 @@ export async function POST(request: Request) {
   });
 
   if (error || !data.user) {
+    if (error && /email not confirmed/i.test(error.message)) {
+      return NextResponse.json({ error: EMAIL_NOT_CONFIRMED_MESSAGE }, { status: 401 });
+    }
     return NextResponse.json({ error: failMessage }, { status: 401 });
   }
 

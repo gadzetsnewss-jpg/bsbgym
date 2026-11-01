@@ -9,12 +9,15 @@
 import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { AppProfile } from "@/lib/auth/types";
 import {
+  EMAIL_NOT_CONFIRMED_MESSAGE,
   GENERIC_CREDENTIALS_MESSAGE,
+  RECOVERY_EMAIL_TAKEN_MESSAGE,
   USERNAME_TAKEN_MESSAGE,
+  isUsableRecoveryEmail,
   normalizeContactNumber,
   normalizeUsername,
-  toInternalAuthEmail,
 } from "@/lib/auth/username";
+import { ownerSignupConfirmRedirectTo } from "@/lib/auth/recovery";
 import type { PortalRole } from "@/lib/validation/auth-schemas";
 
 export type AuthResult<T = undefined> =
@@ -25,6 +28,7 @@ export interface SignUpInput {
   firstName: string;
   lastName: string;
   username: string;
+  recoveryEmail: string;
   contactNumber: string;
   password: string;
 }
@@ -33,6 +37,7 @@ export interface SignUpResult {
   userId: string;
   username: string;
   sessionCreated: boolean;
+  needsEmailConfirmation: boolean;
 }
 
 const DB_INTERNAL_RE = /sql|relation|column|row-level security|\brls\b|violates|database error/i;
@@ -58,8 +63,14 @@ export function toAuthErrorMessage(error: unknown): string {
   ) {
     return GENERIC_CREDENTIALS_MESSAGE;
   }
-  if (/username is already taken|duplicate key.*username|already registered/i.test(raw)) {
+  if (/username is already taken|duplicate key.*username/i.test(raw)) {
     return USERNAME_TAKEN_MESSAGE;
+  }
+  if (/already registered|already been registered|user already registered|email_exists/i.test(raw)) {
+    return RECOVERY_EMAIL_TAKEN_MESSAGE;
+  }
+  if (/email not confirmed|confirm your email/i.test(raw)) {
+    return EMAIL_NOT_CONFIRMED_MESSAGE;
   }
   if (
     code === "session_missing" ||
@@ -130,9 +141,13 @@ export async function signUpWithPassword(
   }
 
   const username = normalizeUsername(input.username);
+  const recoveryEmail = input.recoveryEmail.trim().toLowerCase();
   const contactNumber = normalizeContactNumber(input.contactNumber);
   if (!contactNumber) {
     return { data: null, error: { message: "Enter a valid 10-digit Indian mobile number." } };
+  }
+  if (!isUsableRecoveryEmail(recoveryEmail)) {
+    return { data: null, error: { message: "Enter a real recovery email address." } };
   }
 
   const { data: available, error: availabilityError } = await supabase.rpc(
@@ -144,15 +159,18 @@ export async function signUpWithPassword(
     return { data: null, error: { message: USERNAME_TAKEN_MESSAGE } };
   }
 
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
   const { data, error } = await supabase.auth.signUp({
-    email: toInternalAuthEmail(username),
+    email: recoveryEmail,
     password: input.password,
     options: {
+      emailRedirectTo: origin ? ownerSignupConfirmRedirectTo(origin) : undefined,
       data: {
         first_name: input.firstName,
         last_name: input.lastName,
         username,
         contact_number: contactNumber,
+        recovery_email: recoveryEmail,
       },
     },
   });
@@ -162,11 +180,17 @@ export async function signUpWithPassword(
     return { data: null, error: { message: "No user was returned." } };
   }
 
+  const identities = data.user.identities ?? [];
+  if (identities.length === 0 && !data.session) {
+    return { data: null, error: { message: RECOVERY_EMAIL_TAKEN_MESSAGE } };
+  }
+
   return {
     data: {
       userId: data.user.id,
       username,
       sessionCreated: Boolean(data.session),
+      needsEmailConfirmation: !data.session,
     },
     error: null,
   };
@@ -198,6 +222,84 @@ export async function sendPasswordResetEmail(username: string): Promise<AuthResu
     return { data: undefined, error: null };
   } catch {
     return { data: undefined, error: null };
+  }
+}
+
+export async function sendOwnerPasswordReset(username: string): Promise<AuthResult<{ message: string }>> {
+  if (!getSupabaseBrowserClient()) {
+    return { data: null, error: { message: "Supabase is not configured." } };
+  }
+
+  try {
+    const response = await fetch("/api/auth/owner-forgot-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; message?: string; error?: string };
+    if (response.status === 429) {
+      return { data: null, error: { message: payload.error || "Please try again later." } };
+    }
+    return {
+      data: { message: payload.message || "If an account exists, a password recovery link has been sent." },
+      error: null,
+    };
+  } catch {
+    return {
+      data: { message: "If an account exists, a password recovery link has been sent." },
+      error: null,
+    };
+  }
+}
+
+export async function requestOwnerRecoveryEmailChange(email: string): Promise<AuthResult<{ message: string }>> {
+  if (!getSupabaseBrowserClient()) {
+    return { data: null, error: { message: "Supabase is not configured." } };
+  }
+
+  try {
+    const response = await fetch("/api/auth/owner-recovery-email", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; message?: string; error?: string };
+    if (!response.ok || !payload.ok) {
+      return {
+        data: null,
+        error: { message: payload.error || "Unable to update recovery email right now." },
+      };
+    }
+    return { data: { message: payload.message || "Check your inbox to verify the recovery email." }, error: null };
+  } catch {
+    return { data: null, error: { message: "Something went wrong. Please try again." } };
+  }
+}
+
+export async function completeOwnerPasswordReset(
+  password: string,
+  confirmPassword: string,
+): Promise<AuthResult> {
+  if (!getSupabaseBrowserClient()) {
+    return { data: null, error: { message: "Supabase is not configured." } };
+  }
+
+  try {
+    const response = await fetch("/api/auth/owner-reset-password", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password, confirmPassword }),
+    });
+    const payload = (await response.json()) as { ok?: boolean; error?: string };
+    if (!response.ok || !payload.ok) {
+      return {
+        data: null,
+        error: { message: payload.error || "Unable to update password right now." },
+      };
+    }
+    return { data: undefined, error: null };
+  } catch {
+    return { data: null, error: { message: "Something went wrong. Please try again." } };
   }
 }
 

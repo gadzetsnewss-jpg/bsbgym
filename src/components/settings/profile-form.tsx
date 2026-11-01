@@ -10,13 +10,15 @@ import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { FormSection } from "@/components/ui/form-section";
 import { updateProfile } from "@/lib/auth/profile";
-import { profileSchema } from "@/lib/validation/auth-schemas";
+import { ownerRecoveryEmailSchema, profileSchema } from "@/lib/validation/auth-schemas";
+import { requestOwnerRecoveryEmailChange } from "@/lib/auth/session";
 
 type ProfileValues = z.infer<typeof profileSchema>;
 
 export function ProfileForm() {
   const { toast } = useToast();
-  const { profile, updateProfileLocal } = useOrganization();
+  const { profile, updateProfileLocal, isOwner, recoveryEmailEnrolled, recoveryEmailMasked } =
+    useOrganization();
 
   const [values, setValues] = React.useState<ProfileValues>({
     firstName: profile?.firstName ?? "",
@@ -27,6 +29,10 @@ export function ProfileForm() {
   const [errors, setErrors] = React.useState<Partial<Record<keyof ProfileValues, string>>>({});
   const [submitting, setSubmitting] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
+  const [recoveryEmail, setRecoveryEmail] = React.useState("");
+  const [recoveryError, setRecoveryError] = React.useState<string | undefined>(undefined);
+  const [recoverySubmitting, setRecoverySubmitting] = React.useState(false);
+  const [recoverySent, setRecoverySent] = React.useState(false);
 
   React.useEffect(() => {
     setValues({
@@ -155,6 +161,75 @@ export function ProfileForm() {
           <p className="mt-0.5 text-sm text-neutral-500">{profile.contactNumber ?? profile.phone ?? "—"}</p>
         </div>
       </FormSection>
+
+      {isOwner && (
+        <FormSection
+          title="Password recovery email"
+          description="This address receives password reset links. It is not used to sign in."
+        >
+          {recoveryEmailEnrolled ? (
+            <p className="text-sm text-neutral-600">
+              Verified recovery email: {recoveryEmailMasked ?? "on file"}. Forgot Password can send a reset link here.
+            </p>
+          ) : (
+            <p className="text-sm text-amber-800">
+              Recovery is not enrolled. Forgot Password cannot email you until you verify a real mailbox. Locked-out Owners must contact support for identity verification; username, gym name, or organization ID alone cannot reset a password.
+            </p>
+          )}
+          <FormField
+            label={recoveryEmailEnrolled ? "Change recovery email" : "Recovery email"}
+            hint="We send a confirmation link. The new address is not active until you confirm it."
+            error={recoveryError}
+          >
+            <Input
+              type="email"
+              autoComplete="email"
+              placeholder="you@gym.example"
+              invalid={Boolean(recoveryError)}
+              value={recoveryEmail}
+              onChange={(event) => {
+                setRecoveryEmail(event.target.value);
+                setRecoveryError(undefined);
+                setRecoverySent(false);
+              }}
+            />
+          </FormField>
+          {recoverySent && (
+            <p className="text-sm font-medium text-emerald-700">
+              Check that inbox and confirm the address before it can be used for recovery.
+            </p>
+          )}
+          <div>
+            <Button
+              type="button"
+              variant="outline"
+              isLoading={recoverySubmitting}
+              onClick={async () => {
+                const parsed = ownerRecoveryEmailSchema.safeParse({ email: recoveryEmail });
+                if (!parsed.success) {
+                  setRecoveryError(parsed.error.issues[0]?.message);
+                  return;
+                }
+                setRecoverySubmitting(true);
+                const result = await requestOwnerRecoveryEmailChange(parsed.data.email);
+                setRecoverySubmitting(false);
+                if (result.error) {
+                  setRecoveryError(result.error.message);
+                  return;
+                }
+                setRecoverySent(true);
+                toast({
+                  title: "Confirm your recovery email",
+                  description: result.data.message,
+                  variant: "success",
+                });
+              }}
+            >
+              {recoveryEmailEnrolled ? "Send change confirmation" : "Send verification email"}
+            </Button>
+          </div>
+        </FormSection>
+      )}
 
       <div className="flex items-center justify-end gap-3">
         <Button type="submit" isLoading={submitting}>
