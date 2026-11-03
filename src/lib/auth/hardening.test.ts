@@ -24,6 +24,7 @@ const trainerExtras = read("src/components/trainers/trainer-detail-extras.tsx");
 const memberDetail = read("src/components/members/member-detail.tsx");
 const memberForm = read("src/components/members/member-form.tsx");
 const addMemberForm = read("src/components/members/add-member-form.tsx");
+const orgMembers = read("src/lib/org/members.ts");
 
 describe("sign-in response", () => {
   it("does not return a user id to the browser", () => {
@@ -80,6 +81,9 @@ describe("owner trainer login access", () => {
     expect(loginPanel).toMatch(/Reset Password/);
     expect(loginPanel).toMatch(/Update Password/);
     expect(loginPanel).toMatch(/users\.manage/);
+    expect(loginPanel).toMatch(/Create Trainer Login/);
+    expect(orgMembers).not.toMatch(/profiles\(id, first_name, last_name, email, phone, avatar_url\)/);
+    expect(orgMembers).toMatch(/from\("profiles"\)/);
   });
 });
 

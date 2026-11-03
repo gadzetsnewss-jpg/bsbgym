@@ -240,8 +240,6 @@ function LoginLinkPanel({
   }, [load]);
 
   if (!canManage) return null;
-  if (error) return <ErrorState description={error} onRetry={() => void load()} />;
-  if (loading) return <LoadingState label="Loading logins…" />;
 
   const roleSlug = kind === "trainer" ? "trainer" : "member";
   const options = members
@@ -393,7 +391,11 @@ function LoginLinkPanel({
           ) : (
             <p className="text-sm text-neutral-600">{missingCodeHint}</p>
           )}
-          {options.length === 0 ? (
+          {loading ? (
+            <LoadingState label="Loading invited logins…" />
+          ) : error ? (
+            <ErrorState description={error} onRetry={() => void load()} />
+          ) : options.length === 0 ? (
             <EmptyState
               icon={Link2}
               title={kind === "trainer" ? "No invited trainer logins" : "No invited member logins"}
