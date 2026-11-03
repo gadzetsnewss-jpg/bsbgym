@@ -255,7 +255,7 @@ export async function fetchOrgMembers(organizationId: string): Promise<OrgResult
     supabase
       .from("organization_members")
       .select(
-        "id, user_id, role_id, status, access_all_branches, accepted_at, roles(id, name, slug), profiles(id, first_name, last_name, email, phone, avatar_url)",
+        "id, user_id, role_id, status, access_all_branches, accepted_at, roles(id, name, slug)",
       )
       .eq("organization_id", organizationId)
       .order("created_at"),
@@ -268,6 +268,18 @@ export async function fetchOrgMembers(organizationId: string): Promise<OrgResult
   if (membersRes.error) return { data: null, error: errorOf(membersRes.error) };
   if (branchesRes.error) return { data: null, error: errorOf(branchesRes.error) };
 
+  const userIds = [...new Set(membersRes.data.map((row) => row.user_id).filter(Boolean))];
+  const profilesRes =
+    userIds.length > 0
+      ? await supabase
+          .from("profiles")
+          .select("id, first_name, last_name, email, phone, avatar_url")
+          .in("id", userIds)
+      : { data: [] as { id: string; first_name: string; last_name: string; email: string | null; phone: string | null; avatar_url: string | null }[], error: null };
+  if (profilesRes.error) return { data: null, error: errorOf(profilesRes.error) };
+
+  const profileById = new Map((profilesRes.data ?? []).map((row) => [row.id, row]));
+
   const branchByMember = new Map<string, string[]>();
   for (const row of branchesRes.data) {
     const names = branchByMember.get(row.member_id) ?? [];
@@ -277,14 +289,7 @@ export async function fetchOrgMembers(organizationId: string): Promise<OrgResult
 
   const members: OrgMemberRow[] = membersRes.data.map((row) => {
     const role = row.roles as unknown as { id: string; name: string; slug: string } | null;
-    const profile = row.profiles as unknown as {
-      id: string;
-      first_name: string;
-      last_name: string;
-      email: string | null;
-      phone: string | null;
-      avatar_url: string | null;
-    } | null;
+    const profile = profileById.get(row.user_id) ?? null;
 
     return {
       id: row.id,
