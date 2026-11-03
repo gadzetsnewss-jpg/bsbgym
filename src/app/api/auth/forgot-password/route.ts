@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
-import { normalizeUsername } from "@/lib/auth/username";
+import { isInternalAuthEmail, normalizeUsername } from "@/lib/auth/username";
 import { forgotPasswordSchema } from "@/lib/validation/auth-schemas";
 
 export async function POST(request: Request) {
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     p_username: username,
   });
 
-  if (email) {
+  if (email && !isInternalAuthEmail(email)) {
     const origin = new URL(request.url).origin;
     await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${origin}/reset-password`,

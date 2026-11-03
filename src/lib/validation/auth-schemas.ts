@@ -5,6 +5,7 @@
 
 import { z } from "zod";
 import {
+  isUsableRecoveryEmail,
   normalizeContactNumber,
   normalizeUsername,
   usernameValidationMessage,
@@ -19,7 +20,12 @@ const emailSchema = z
   .trim()
   .toLowerCase()
   .min(1, "Email is required")
-  .email("Enter a valid email address");
+  .email("Enter a valid email address")
+  .superRefine((value, ctx) => {
+    if (!isUsableRecoveryEmail(value)) {
+      ctx.addIssue({ code: "custom", message: "Enter a real recovery email address" });
+    }
+  });
 
 const usernameSchema = z
   .string()
@@ -99,6 +105,7 @@ export const portalLoginSchema = z
 export const signUpSchema = z
   .object({
     username: usernameSchema,
+    recoveryEmail: emailSchema,
     contactNumber: contactNumberSchema,
     firstName: z.string().trim().min(1, "First name is required").max(80),
     lastName: z.string().trim().min(1, "Last name is required").max(80),
@@ -109,6 +116,10 @@ export const signUpSchema = z
     message: "Passwords do not match",
     path: ["confirmPassword"],
   });
+
+export const ownerRecoveryEmailSchema = z.object({
+  email: emailSchema,
+});
 
 export const forgotPasswordSchema = z.object({ username: loginUsernameSchema });
 

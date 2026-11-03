@@ -15,11 +15,12 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
   if (isSupabaseConfigured) {
     const pathname = (await headers()).get("x-pathname") ?? "";
     const isChangePassword = pathname === "/change-password";
+    const isRecovery = pathname === "/reset-password" || pathname === "/owner/reset-password";
     const resolved = await resolveAppContext();
     const mustChange = resolved.status === "ok" && Boolean(resolved.context?.mustChangePassword);
-    if (mustChange && !isChangePassword) redirect("/change-password");
-    if (resolved.status === "ok" && !mustChange) redirect("/dashboard");
-    if (resolved.status === "no_organization" && !isChangePassword) redirect("/onboarding");
+    if (mustChange && !isChangePassword && !isRecovery) redirect("/change-password");
+    if (resolved.status === "ok" && !mustChange && !isRecovery) redirect("/dashboard");
+    if (resolved.status === "no_organization" && !isChangePassword && !isRecovery) redirect("/onboarding");
     if (resolved.status === "unauthenticated" && isChangePassword) redirect("/login");
   }
 

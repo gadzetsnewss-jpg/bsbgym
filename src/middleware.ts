@@ -33,9 +33,13 @@ const PUBLIC_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/owner/login",
+  "/owner/forgot-password",
+  "/owner/reset-password",
   "/trainer/login",
   "/member/login",
 ];
+
+const RECOVERY_PREFIXES = ["/reset-password", "/owner/reset-password"];
 
 /** Paths that must never be redirected (callbacks, asset-ish routes). */
 const EXCLUDED_PREFIXES = ["/auth", "/api", "/accept-invitation", "/_next"];
@@ -46,6 +50,7 @@ export async function middleware(request: NextRequest) {
   const excluded = EXCLUDED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   const isProtected = PROTECTED_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   const isPublicAuth = PUBLIC_PREFIXES.some((prefix) => pathname === prefix);
+  const isRecovery = RECOVERY_PREFIXES.some((prefix) => pathname === prefix);
 
   // Preview mode (no Supabase configured): leave everything untouched.
   if (!isSupabaseConfigured) {
@@ -72,9 +77,9 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  if (isPublicAuth && user) {
-    // Signed-in users never see login/signup screens. The auth layout decides
-    // between /dashboard and /onboarding based on their membership state.
+  if (isPublicAuth && user && !isRecovery) {
+    // Signed-in users never see login/signup screens. Recovery pages must keep
+    // the recovery session so the owner can set a new password.
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 

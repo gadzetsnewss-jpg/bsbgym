@@ -11,7 +11,7 @@ import { useToast } from "@/components/ui/toast";
 import { useAuth } from "@/components/auth/auth-provider";
 import { NotConfiguredNotice, PasswordInput } from "@/components/auth/password-input";
 import { signUpSchema } from "@/lib/validation/auth-schemas";
-import { USERNAME_TAKEN_MESSAGE } from "@/lib/auth/username";
+import { RECOVERY_EMAIL_TAKEN_MESSAGE, USERNAME_TAKEN_MESSAGE } from "@/lib/auth/username";
 
 type SignUpValues = z.infer<typeof signUpSchema>;
 
@@ -22,12 +22,14 @@ export default function SignUpPage() {
 
   const [values, setValues] = React.useState({
     username: "",
+    recoveryEmail: "",
     contactNumber: "",
     firstName: "",
     lastName: "",
     password: "",
     confirmPassword: "",
   });
+  const [needsConfirmation, setNeedsConfirmation] = React.useState(false);
   const [errors, setErrors] = React.useState<Partial<Record<keyof SignUpValues, string>>>({});
   const [formError, setFormError] = React.useState<string | null>(null);
   const [submitting, setSubmitting] = React.useState(false);
@@ -58,6 +60,7 @@ export default function SignUpPage() {
 
     const result = await signUp({
       username: parsed.data.username,
+      recoveryEmail: parsed.data.recoveryEmail,
       contactNumber: parsed.data.contactNumber,
       firstName: parsed.data.firstName,
       lastName: parsed.data.lastName,
@@ -69,9 +72,21 @@ export default function SignUpPage() {
     if (result.error) {
       if (result.error.message === USERNAME_TAKEN_MESSAGE) {
         setErrors((prev) => ({ ...prev, username: USERNAME_TAKEN_MESSAGE }));
+      } else if (result.error.message === RECOVERY_EMAIL_TAKEN_MESSAGE) {
+        setErrors((prev) => ({ ...prev, recoveryEmail: RECOVERY_EMAIL_TAKEN_MESSAGE }));
       } else {
         setFormError(result.error.message);
       }
+      return;
+    }
+
+    if (result.data?.needsEmailConfirmation) {
+      setNeedsConfirmation(true);
+      toast({
+        title: "Confirm your recovery email",
+        description: "Check your inbox and confirm the address before you sign in.",
+        variant: "success",
+      });
       return;
     }
 
@@ -80,18 +95,35 @@ export default function SignUpPage() {
       description: "Welcome to BSB FitForge. Setting up your workspace…",
       variant: "success",
     });
-    router.replace(result.data?.sessionCreated ? "/onboarding" : "/login");
+    router.replace("/onboarding");
     router.refresh();
   };
 
   const disabled = !configured || submitting;
+
+  if (needsConfirmation) {
+    return (
+      <div className="text-center">
+        <h2 className="text-2xl font-semibold tracking-tight text-ink">Confirm your recovery email</h2>
+        <p className="mt-2 text-sm leading-relaxed text-neutral-500">
+          We sent a confirmation link to your recovery email. Confirm it, then sign in with your username and password. Email is for password recovery only, not for login.
+        </p>
+        <Link
+          href="/owner/login"
+          className="mt-6 inline-flex items-center text-sm font-medium text-primary-700 transition-colors hover:text-primary-800"
+        >
+          Owner sign in
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <React.Fragment>
       <div className="mb-6">
         <h2 className="text-2xl font-semibold tracking-tight text-ink">Create your account</h2>
         <p className="mt-1 text-sm text-neutral-500">
-          Set up your gym workspace in a few minutes.
+          Set up your gym workspace in a few minutes. You will sign in with username and password.
         </p>
       </div>
 
@@ -110,6 +142,23 @@ export default function SignUpPage() {
             invalid={Boolean(errors.username)}
             value={values.username}
             onChange={(event) => setField("username", event.target.value)}
+            disabled={!configured}
+          />
+        </FormField>
+
+        <FormField
+          label="Recovery email"
+          required
+          hint="Used only to recover a forgotten password. You still sign in with your username."
+          error={errors.recoveryEmail}
+        >
+          <Input
+            type="email"
+            autoComplete="email"
+            placeholder="you@gym.example"
+            invalid={Boolean(errors.recoveryEmail)}
+            value={values.recoveryEmail}
+            onChange={(event) => setField("recoveryEmail", event.target.value)}
             disabled={!configured}
           />
         </FormField>

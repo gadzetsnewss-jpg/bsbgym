@@ -15,6 +15,8 @@ import {
   toInternalAuthEmail,
   trainerCodeToUsername,
   usernameValidationMessage,
+  isInternalAuthEmail,
+  isUsableRecoveryEmail,
 } from "@/lib/auth/username";
 
 describe("normalizeUsername", () => {
@@ -63,6 +65,19 @@ describe("normalizeContactNumber", () => {
 describe("toInternalAuthEmail", () => {
   it("maps a username to the internal auth email", () => {
     expect(toInternalAuthEmail("Asha.Mehta")).toBe(`asha.mehta@${INTERNAL_AUTH_EMAIL_DOMAIN}`);
+  });
+
+  it("detects synthetic auth emails", () => {
+    expect(isInternalAuthEmail(`owner.one@${INTERNAL_AUTH_EMAIL_DOMAIN}`)).toBe(true);
+    expect(isInternalAuthEmail("owner@gym.example")).toBe(false);
+    expect(isInternalAuthEmail(null)).toBe(true);
+  });
+
+  it("accepts only deliverable recovery mailboxes", () => {
+    expect(isUsableRecoveryEmail("owner@gym.example")).toBe(true);
+    expect(isUsableRecoveryEmail(`owner@${INTERNAL_AUTH_EMAIL_DOMAIN}`)).toBe(false);
+    expect(isUsableRecoveryEmail("owner@users.local")).toBe(false);
+    expect(isUsableRecoveryEmail(null)).toBe(false);
   });
 });
 

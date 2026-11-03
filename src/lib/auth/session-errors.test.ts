@@ -50,9 +50,9 @@ describe("toAuthErrorMessage", () => {
   });
 
   it("maps duplicate username / already-registered errors", () => {
-    expect(toAuthErrorMessage({ message: "User already registered", code: "user_exists" }))
-      .toBe("This username is already taken.");
     expect(toAuthErrorMessage({ message: "username is already taken" }))
       .toBe("This username is already taken.");
+    expect(toAuthErrorMessage({ message: "User already registered", code: "user_exists" }))
+      .toBe("This recovery email cannot be used. Try a different address or sign in.");
   });
 });

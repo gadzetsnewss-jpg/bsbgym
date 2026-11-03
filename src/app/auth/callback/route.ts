@@ -14,22 +14,28 @@ export async function GET(request: Request) {
 
   const safeNext =
     next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  const isOwnerRecovery = safeNext === "/owner/reset-password";
+  const isOwnerEnrollment = safeNext === "/settings/profile";
+  const failPath = isOwnerRecovery ? "/owner/forgot-password" : "/login";
 
   if (!isSupabaseConfigured) {
-    return NextResponse.redirect(`${origin}/login`);
+    return NextResponse.redirect(`${origin}${failPath}`);
   }
 
   const supabase = await createServerSupabase();
   if (!supabase || !code) {
-    return NextResponse.redirect(`${origin}/login`);
+    return NextResponse.redirect(`${origin}${failPath}`);
   }
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    return NextResponse.redirect(`${origin}/login`);
+    return NextResponse.redirect(`${origin}${failPath}`);
   }
 
-  // Route the user to their next step based on organization state.
+  if (isOwnerRecovery || isOwnerEnrollment) {
+    return NextResponse.redirect(`${origin}${safeNext}`);
+  }
+
   const { data: member } = await supabase
     .from("organization_members")
     .select("id")

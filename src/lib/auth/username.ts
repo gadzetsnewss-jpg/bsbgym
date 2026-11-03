@@ -67,6 +67,21 @@ export function toInternalAuthEmail(username: string): string {
   return `${normalizeUsername(username)}@${INTERNAL_AUTH_EMAIL_DOMAIN}`;
 }
 
+export function isInternalAuthEmail(email: string | null | undefined): boolean {
+  if (!email) return true;
+  const normalized = email.trim().toLowerCase();
+  return normalized.endsWith(`@${INTERNAL_AUTH_EMAIL_DOMAIN}`);
+}
+
+export function isUsableRecoveryEmail(email: string | null | undefined): boolean {
+  if (!email) return false;
+  const normalized = email.trim().toLowerCase();
+  if (!normalized.includes("@") || normalized.startsWith("@") || normalized.endsWith("@")) return false;
+  if (isInternalAuthEmail(normalized)) return false;
+  if (normalized.endsWith(".local")) return false;
+  return true;
+}
+
 export function normalizeGymCode(value: string): string {
   return value.trim().toLowerCase();
 }
@@ -108,3 +123,7 @@ export function trainerCodeToUsername(code: string): string {
 export const GENERIC_CREDENTIALS_MESSAGE = "Username or password is incorrect.";
 export const GENERIC_ID_CREDENTIALS_MESSAGE = "ID or password is incorrect.";
 export const USERNAME_TAKEN_MESSAGE = "This username is already taken.";
+export const RECOVERY_EMAIL_TAKEN_MESSAGE =
+  "This recovery email cannot be used. Try a different address or sign in.";
+export const EMAIL_NOT_CONFIRMED_MESSAGE =
+  "Confirm your recovery email before signing in. Check your inbox.";

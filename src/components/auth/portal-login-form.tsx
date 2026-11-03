@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
@@ -147,7 +148,20 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
           />
         </FormField>
 
-        <FormField label="Password" required error={errors.password}>
+        <div>
+          <div className="flex items-center justify-between">
+            <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-ink">
+              Password
+            </label>
+            {portal === "owner" && (
+              <Link
+                href="/owner/forgot-password"
+                className="mb-1.5 text-sm font-medium text-primary-700 transition-colors hover:text-primary-800"
+              >
+                Forgot Password?
+              </Link>
+            )}
+          </div>
           <PasswordInput
             id="password"
             autoComplete="current-password"
@@ -157,7 +171,12 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
             onChange={(event) => setField("password", event.target.value)}
             disabled={!configured}
           />
-        </FormField>
+          {errors.password && (
+            <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">
+              {errors.password}
+            </p>
+          )}
+        </div>
 
         {formError && (
           <p role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm font-medium text-red-600">

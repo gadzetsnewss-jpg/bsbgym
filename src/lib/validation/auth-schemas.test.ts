@@ -8,6 +8,7 @@ import {
   portalLoginSchema,
   signUpSchema,
   forgotPasswordSchema,
+  ownerRecoveryEmailSchema,
   resetPasswordSchema,
   provisionLoginBodySchema,
   resetLinkedLoginPasswordSchema,
@@ -112,6 +113,7 @@ describe("portalLoginSchema", () => {
 describe("signUpSchema", () => {
   const valid = {
     username: "asha.sharma",
+    recoveryEmail: "asha@gym.example",
     contactNumber: "9876543210",
     firstName: "Asha",
     lastName: "Sharma",
@@ -196,6 +198,23 @@ describe("signUpSchema", () => {
   it("rejects an invalid contact number", () => {
     expect(signUpSchema.safeParse({ ...valid, contactNumber: "12345" }).success).toBe(false);
     expect(signUpSchema.safeParse({ ...valid, contactNumber: "0123456789" }).success).toBe(false);
+  });
+
+  it("requires a real recovery email and rejects synthetic addresses", () => {
+    expect(signUpSchema.safeParse({ ...valid, recoveryEmail: "" }).success).toBe(false);
+    expect(signUpSchema.safeParse({ ...valid, recoveryEmail: "not-an-email" }).success).toBe(false);
+    expect(
+      signUpSchema.safeParse({ ...valid, recoveryEmail: "asha@users.bsbfitforge.local" }).success,
+    ).toBe(false);
+  });
+});
+
+describe("ownerRecoveryEmailSchema", () => {
+  it("accepts a real mailbox and rejects synthetic addresses", () => {
+    expect(ownerRecoveryEmailSchema.safeParse({ email: "owner@gym.example" }).success).toBe(true);
+    expect(ownerRecoveryEmailSchema.safeParse({ email: "owner@users.bsbfitforge.local" }).success).toBe(
+      false,
+    );
   });
 });
 

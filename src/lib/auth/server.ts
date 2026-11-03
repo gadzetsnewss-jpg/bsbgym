@@ -15,6 +15,7 @@ import { createServerSupabase, isSupabaseConfigured } from "@/lib/supabase/serve
 import type { Database } from "@/lib/supabase/types";
 import type { AppContextData } from "@/lib/auth/types";
 import { toAppProfile } from "@/lib/auth/session";
+import { isVerifiedRecoveryEmail, maskRecoveryEmail } from "@/lib/auth/recovery";
 
 type Db = SupabaseClient<Database>;
 
@@ -207,6 +208,10 @@ export async function resolveAppContext(): Promise<ResolvedAppContext> {
         "must_change_password" in profileResult.data &&
         profileResult.data.must_change_password,
     ),
+    recoveryEmailEnrolled: isVerifiedRecoveryEmail(user.email, user.email_confirmed_at),
+    recoveryEmailMasked: isVerifiedRecoveryEmail(user.email, user.email_confirmed_at)
+      ? maskRecoveryEmail(user.email)
+      : null,
   };
 
   return { status: "ok", context };
