@@ -120,6 +120,26 @@ export function trainerCodeToUsername(code: string): string {
   return loginUsernameFromCode(normalizeTrainerCode(code));
 }
 
+export function loginUsernamesForRecord(
+  code: string,
+  recordId: string,
+  kind: "trainer" | "member",
+): string[] {
+  const base = kind === "member" ? memberCodeToUsername(code) : trainerCodeToUsername(code);
+  const compactId = recordId.replace(/-/g, "");
+  const candidates = [base, `${base}${compactId.slice(0, 6)}`, `id${compactId}`].map((value) =>
+    value.slice(0, USERNAME_MAX_LENGTH),
+  );
+  return [...new Set(candidates.filter((value) => isValidUsername(value)))];
+}
+
+export function isAuthCreateCollision(message: string | null | undefined): boolean {
+  if (!message) return false;
+  return /already registered|already been registered|duplicate|username is already taken|database error creating new user|user already exists|email_exists|user_already_exists/i.test(
+    message,
+  );
+}
+
 export const GENERIC_CREDENTIALS_MESSAGE = "Username or password is incorrect.";
 export const GENERIC_ID_CREDENTIALS_MESSAGE = "ID or password is incorrect.";
 export const USERNAME_TAKEN_MESSAGE = "This username is already taken.";

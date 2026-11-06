@@ -19,6 +19,7 @@ const session = read("src/lib/auth/session.ts");
 const profile = read("src/lib/auth/profile.ts");
 const types = read("src/lib/supabase/types.ts");
 const resetLoginRoute = read("src/app/api/org/reset-login-password/route.ts");
+const provisionLoginRoute = read("src/app/api/org/provision-login/route.ts");
 const loginPanel = read("src/components/org/login-link-panel.tsx");
 const trainerExtras = read("src/components/trainers/trainer-detail-extras.tsx");
 const memberDetail = read("src/components/members/member-detail.tsx");
@@ -69,6 +70,25 @@ describe("owner trainer login access", () => {
     expect(resetLoginRoute).toMatch(/complete_password_change/);
     expect(resetLoginRoute).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
     expect(resetLoginRoute).not.toMatch(/plaintext/);
+  });
+
+  it("provisions trainer logins with Owner authz, gym isolation, and orphan reuse", () => {
+    expect(provisionLoginRoute).toMatch(/PERMISSIONS\.users\.manage/);
+    expect(provisionLoginRoute).toMatch(/organization_id !== orgId/);
+    expect(provisionLoginRoute).toMatch(/findAuthUserByUsername/);
+    expect(provisionLoginRoute).toMatch(/identityIsLinkedElsewhere/);
+    expect(provisionLoginRoute).toMatch(/updateUserById/);
+    expect(provisionLoginRoute).toMatch(/link_trainer_user/);
+    expect(provisionLoginRoute).toMatch(/requestId/);
+    expect(provisionLoginRoute).toMatch(/scope: "provision-login"/);
+    expect(provisionLoginRoute).not.toMatch(/deleteUser/);
+    expect(provisionLoginRoute).not.toMatch(/plaintext/);
+    expect(provisionLoginRoute).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
+    expect(provisionLoginRoute).toMatch(/serverEnv\.supabaseServiceRoleKey/);
+    expect(provisionLoginRoute).toMatch(/email_confirm: true/);
+    expect(provisionLoginRoute).toMatch(/toInternalAuthEmail/);
+    expect(loginPanel).toMatch(/if \(saving\) return/);
+    expect(loginPanel).toMatch(/setValues\(emptyPasswords\(\)\)/);
   });
 
   it("shows Login Access create and reset controls on trainer detail", () => {

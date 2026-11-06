@@ -108,10 +108,23 @@ describe("role portal app surface", () => {
   });
 
   it("creates logins through Auth and never stores plaintext passwords", () => {
+    expect(provisionRoute).toMatch(/PERMISSIONS\.users\.manage/);
     expect(provisionRoute).toMatch(/initialPasswordFromPhone/);
     expect(provisionRoute).toMatch(/admin\.auth\.admin\.createUser/);
     expect(provisionRoute).toMatch(/provision_linked_login/);
     expect(provisionRoute).toMatch(/parsed\.data\.password/);
+    expect(provisionRoute).toMatch(/username_is_available/);
+    expect(provisionRoute).toMatch(/isAuthCreateCollision/);
+    expect(provisionRoute).toMatch(/loginUsernamesForRecord/);
+    expect(provisionRoute).toMatch(/normalizeContactNumber/);
+    expect(provisionRoute).toMatch(/findAuthUserByUsername/);
+    expect(provisionRoute).toMatch(/updateUserById/);
+    expect(provisionRoute).toMatch(/link_trainer_user/);
     expect(provisionRoute).not.toMatch(/plaintext/);
+    expect(provisionRoute).not.toMatch(/deleteUser/);
+    expect(provisionRoute).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
+    expect(provisionRoute).toMatch(/serverEnv\.supabaseServiceRoleKey/);
+    expect(provisionRoute).toMatch(/organization_id !== orgId/);
+    expect(provisionRoute).toMatch(/requestId/);
   });
 });

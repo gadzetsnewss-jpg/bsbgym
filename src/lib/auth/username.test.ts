@@ -3,6 +3,7 @@ import {
   GENERIC_CREDENTIALS_MESSAGE,
   GENERIC_ID_CREDENTIALS_MESSAGE,
   INTERNAL_AUTH_EMAIL_DOMAIN,
+  USERNAME_MAX_LENGTH,
   USERNAME_TAKEN_MESSAGE,
   initialPasswordFromPhone,
   isValidUsername,
@@ -15,8 +16,10 @@ import {
   toInternalAuthEmail,
   trainerCodeToUsername,
   usernameValidationMessage,
+  isAuthCreateCollision,
   isInternalAuthEmail,
   isUsableRecoveryEmail,
+  loginUsernamesForRecord,
 } from "@/lib/auth/username";
 
 describe("normalizeUsername", () => {
@@ -100,6 +103,26 @@ describe("portal identifiers", () => {
     expect(isValidUsername(memberCodeToUsername("MEM-0001"))).toBe(true);
     expect(trainerCodeToUsername("TR-0001")).toBe("tr-0001");
     expect(isValidUsername(loginUsernameFromCode("AB"))).toBe(true);
+    expect(trainerCodeToUsername("DP001")).toBe("dp001");
+  });
+
+  it("offers extra login usernames when the trainer code is already taken", () => {
+    const recordId = "11111111-2222-3333-4444-555555555555";
+    const names = loginUsernamesForRecord("DP001", recordId, "trainer");
+    expect(names[0]).toBe("dp001");
+    expect(names.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(names).size).toBe(names.length);
+    for (const name of names) {
+      expect(isValidUsername(name)).toBe(true);
+      expect(name.length).toBeLessThanOrEqual(USERNAME_MAX_LENGTH);
+    }
+  });
+
+  it("treats GoTrue trigger wrappers as username collisions", () => {
+    expect(isAuthCreateCollision("Database error creating new user")).toBe(true);
+    expect(isAuthCreateCollision("User already registered")).toBe(true);
+    expect(isAuthCreateCollision("This username is already taken.")).toBe(true);
+    expect(isAuthCreateCollision("Unable to create a login right now.")).toBe(false);
   });
 
   it("uses national mobile digits as the initial password", () => {
