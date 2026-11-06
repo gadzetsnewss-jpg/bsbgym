@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
+import { resolveAppContext } from "@/lib/auth/server";
+import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import {
   initialPasswordFromPhone,
-  memberCodeToUsername,
-  trainerCodeToUsername,
+  isAuthCreateCollision,
+  loginUsernamesForRecord,
+  normalizeContactNumber,
   toInternalAuthEmail,
   USERNAME_TAKEN_MESSAGE,
 } from "@/lib/auth/username";
@@ -32,17 +35,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: message }, { status: 400 });
   }
 
+  const resolved = await resolveAppContext();
+  if (resolved.status === "unauthenticated" || resolved.status === "not_configured") {
+    return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
+  }
+  if (
+    resolved.status !== "ok" ||
+    !resolved.context ||
+    !hasPermission(resolved.context.permissions, PERMISSIONS.users.manage)
+  ) {
+    return NextResponse.json({ error: "You don't have permission to do that." }, { status: 403 });
+  }
+
   const supabase = await createServerSupabase();
   const admin = await createServerSupabaseAdmin();
   if (!supabase || !admin) {
     return NextResponse.json({ error: "Unable to create a login right now." }, { status: 503 });
-  }
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: "Please sign in to continue." }, { status: 401 });
   }
 
   const { kind, recordId } = parsed.data;
@@ -103,14 +111,29 @@ export async function POST(request: Request) {
     );
   }
 
-  const baseUsername = kind === "member" ? memberCodeToUsername(code) : trainerCodeToUsername(code);
   const firstName = typeof record.first_name === "string" ? record.first_name : "";
   const lastName = typeof record.last_name === "string" ? record.last_name : "";
-  const usernames = [baseUsername, `${baseUsername}${recordId.replace(/-/g, "").slice(0, 6)}`.slice(0, 32)];
+  const contactNumber = normalizeContactNumber(phone);
+  const usernames = loginUsernamesForRecord(code, recordId, kind);
+  if (usernames.length === 0) {
+    return NextResponse.json(
+      { error: kind === "trainer" ? "Trainer code is required." : "Member code is required." },
+      { status: 400 },
+    );
+  }
 
   let createdUserId: string | null = null;
   let lastCreateError: string | null = null;
   for (const username of usernames) {
+    const availability = await supabase.rpc("username_is_available", { p_username: username });
+    if (availability.error) {
+      return NextResponse.json({ error: "Unable to create a login right now." }, { status: 503 });
+    }
+    if (availability.data === false) {
+      lastCreateError = USERNAME_TAKEN_MESSAGE;
+      continue;
+    }
+
     const created = await admin.auth.admin.createUser({
       email: toInternalAuthEmail(username),
       password,
@@ -119,7 +142,7 @@ export async function POST(request: Request) {
         first_name: firstName,
         last_name: lastName,
         username,
-        contact_number: phone,
+        ...(contactNumber ? { contact_number: contactNumber } : {}),
       },
     });
     if (created.data.user) {
@@ -128,13 +151,13 @@ export async function POST(request: Request) {
       break;
     }
     lastCreateError = created.error?.message ?? "";
-    if (!/already registered|already been registered|duplicate|username is already taken/i.test(lastCreateError)) {
+    if (!isAuthCreateCollision(lastCreateError)) {
       return NextResponse.json({ error: "Unable to create a login right now." }, { status: 503 });
     }
   }
 
   if (!createdUserId) {
-    if (lastCreateError && /already registered|already been registered|duplicate|username is already taken/i.test(lastCreateError)) {
+    if (isAuthCreateCollision(lastCreateError)) {
       return NextResponse.json({ error: USERNAME_TAKEN_MESSAGE }, { status: 409 });
     }
     return NextResponse.json({ error: "Unable to create a login right now." }, { status: 503 });
