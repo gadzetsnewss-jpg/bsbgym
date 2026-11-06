@@ -262,7 +262,9 @@ export function toFriendlyError(error: unknown): FriendlyError {
     text.includes("login kind is invalid") ||
     text.includes("trainer code is required") ||
     text.includes("member code is required") ||
-    text.includes("a registered mobile number is required")
+    text.includes("a registered mobile number is required") ||
+    text.includes("role not found") ||
+    text.includes("trainer login role is missing")
   ) {
     return { code: "validation", message: raw };
   }

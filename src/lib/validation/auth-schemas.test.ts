@@ -276,6 +276,16 @@ describe("provisionLoginBodySchema", () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it("rejects a password without a letter and number", () => {
+    const result = provisionLoginBodySchema.safeParse({
+      kind: "trainer",
+      recordId,
+      password: "short",
+      confirmPassword: "short",
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("resetLinkedLoginPasswordSchema", () => {
