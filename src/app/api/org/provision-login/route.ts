@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import type { User } from "@supabase/supabase-js";
 import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/server";
-import { isSupabaseConfigured, serverEnv } from "@/lib/env";
+import { isSupabaseConfigured } from "@/lib/env";
+import { getSupabaseServiceRoleKey } from "@/lib/server-env";
 import { resolveAppContext } from "@/lib/auth/server";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import {
@@ -14,6 +15,12 @@ import {
 } from "@/lib/auth/username";
 import { friendlyMessage } from "@/lib/errors";
 import { provisionLoginBodySchema } from "@/lib/validation/auth-schemas";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const LOGIN_SERVER_NOT_CONFIGURED = "Login server is not configured.";
+const LOGIN_CREATED_NOT_LINKED = "Login was created but not linked. Try again.";
 
 type AdminClient = NonNullable<Awaited<ReturnType<typeof createServerSupabaseAdmin>>>;
 type UserClient = NonNullable<Awaited<ReturnType<typeof createServerSupabase>>>;
@@ -102,6 +109,30 @@ async function recoverExistingMembership(
   return linked.error ? friendlyMessage(linked.error) : null;
 }
 
+async function verifyRecordLinked(
+  admin: AdminClient,
+  kind: "trainer" | "member",
+  recordId: string,
+  orgId: string,
+  userId: string,
+): Promise<boolean> {
+  const result =
+    kind === "trainer"
+      ? await admin
+          .from("trainers")
+          .select("id, user_id")
+          .eq("id", recordId)
+          .eq("organization_id", orgId)
+          .maybeSingle()
+      : await admin
+          .from("gym_members")
+          .select("id, user_id")
+          .eq("id", recordId)
+          .eq("organization_id", orgId)
+          .maybeSingle();
+  return result.data?.user_id === userId;
+}
+
 export async function POST(request: Request) {
   const requestId = newRequestId();
 
@@ -146,16 +177,16 @@ export async function POST(request: Request) {
   const supabase = await createServerSupabase();
   if (!supabase) {
     logProvision({ requestId, stage: "config", status: 503, reason: "user_client_missing" });
-    return jsonError(503, "Unable to create a login right now.", requestId);
+    return jsonError(503, LOGIN_SERVER_NOT_CONFIGURED, requestId);
   }
-  if (!serverEnv.supabaseServiceRoleKey) {
+  if (!getSupabaseServiceRoleKey()) {
     logProvision({ requestId, stage: "config", status: 503, reason: "service_role_missing" });
-    return jsonError(503, "Unable to create a login right now.", requestId);
+    return jsonError(503, LOGIN_SERVER_NOT_CONFIGURED, requestId);
   }
   const admin = await createServerSupabaseAdmin();
   if (!admin) {
     logProvision({ requestId, stage: "config", status: 503, reason: "admin_client_missing" });
-    return jsonError(503, "Unable to create a login right now.", requestId);
+    return jsonError(503, LOGIN_SERVER_NOT_CONFIGURED, requestId);
   }
 
   const recordResult =
@@ -239,10 +270,15 @@ export async function POST(request: Request) {
         });
         if (passwordError) {
           logProvision({ requestId, stage: "reuse", status: 400, kind, reason: "password_update_failed" });
-          return jsonError(400, "Unable to create a login right now.", requestId);
+          return jsonError(400, "Unable to set the login password. Try again.", requestId);
         }
         if (ownerSetPassword) {
           await admin.rpc("complete_password_change", { p_user_id: existing.id });
+        }
+        const verified = await verifyRecordLinked(admin, kind, recordId, orgId, existing.id);
+        if (!verified) {
+          logProvision({ requestId, stage: "verify", status: 503, kind, reason: "link_not_persisted" });
+          return jsonError(503, LOGIN_CREATED_NOT_LINKED, requestId);
         }
         logProvision({ requestId, stage: "done", status: 200, kind, reused: true, alreadyLinked: true });
         return NextResponse.json({ ok: true, loginId: code.toUpperCase(), requestId });
@@ -256,7 +292,7 @@ export async function POST(request: Request) {
       });
       if (passwordError) {
         logProvision({ requestId, stage: "reuse", status: 400, kind, reason: "password_update_failed" });
-        return jsonError(400, "Unable to create a login right now.", requestId);
+        return jsonError(400, "Unable to set the login password. Try again.", requestId);
       }
       targetUserId = existing.id;
       reusedExisting = true;
@@ -267,7 +303,7 @@ export async function POST(request: Request) {
     const availability = await supabase.rpc("username_is_available", { p_username: username });
     if (availability.error) {
       logProvision({ requestId, stage: "username", status: 503, kind, reason: "availability_rpc_failed" });
-      return jsonError(503, "Unable to create a login right now.", requestId);
+      return jsonError(503, "Login setup is not installed on this gym yet.", requestId);
     }
     if (availability.data === false) {
       lastCreateError = USERNAME_TAKEN_MESSAGE;
@@ -299,7 +335,7 @@ export async function POST(request: Request) {
       reason: isAuthCreateCollision(lastCreateError) ? "auth_collision" : "create_failed",
     });
     if (!isAuthCreateCollision(lastCreateError)) {
-      return jsonError(503, "Unable to create a login right now.", requestId);
+      return jsonError(503, "Unable to create the trainer login. Try again.", requestId);
     }
 
     const collided = await findAuthUserByUsername(admin, username);
@@ -311,7 +347,7 @@ export async function POST(request: Request) {
     });
     if (passwordError) {
       logProvision({ requestId, stage: "reuse", status: 400, kind, reason: "password_update_failed" });
-      return jsonError(400, "Unable to create a login right now.", requestId);
+      return jsonError(400, "Unable to set the login password. Try again.", requestId);
     }
     targetUserId = collided.id;
     reusedExisting = true;
@@ -330,7 +366,7 @@ export async function POST(request: Request) {
     if (isAuthCreateCollision(lastCreateError) || lastCreateError === USERNAME_TAKEN_MESSAGE) {
       return jsonError(409, USERNAME_TAKEN_MESSAGE, requestId);
     }
-    return jsonError(503, "Unable to create a login right now.", requestId);
+    return jsonError(503, "Unable to create the trainer login. Try again.", requestId);
   }
 
   const { error: provisionError } = await supabase.rpc("provision_linked_login", {
@@ -356,6 +392,11 @@ export async function POST(request: Request) {
         if (ownerSetPassword) {
           await admin.rpc("complete_password_change", { p_user_id: targetUserId });
         }
+        const linked = await verifyRecordLinked(admin, kind, recordId, orgId, targetUserId);
+        if (!linked) {
+          logProvision({ requestId, stage: "verify", status: 503, kind, reason: "link_not_persisted" });
+          return jsonError(503, LOGIN_CREATED_NOT_LINKED, requestId);
+        }
         logProvision({ requestId, stage: "done", status: 200, kind, reused: true, recovered: true });
         return NextResponse.json({ ok: true, loginId: code.toUpperCase(), requestId });
       }
@@ -371,13 +412,18 @@ export async function POST(request: Request) {
     return jsonError(400, message, requestId);
   }
 
+  const linked = await verifyRecordLinked(admin, kind, recordId, orgId, targetUserId);
+  if (!linked) {
+    logProvision({ requestId, stage: "verify", status: 503, kind, reason: "link_not_persisted" });
+    return jsonError(503, LOGIN_CREATED_NOT_LINKED, requestId);
+  }
+
   if (ownerSetPassword) {
     const { error: flagError } = await admin.rpc("complete_password_change", {
       p_user_id: targetUserId,
     });
     if (flagError) {
-      logProvision({ requestId, stage: "password_flag", status: 503, kind, reason: "complete_password_change_failed" });
-      return jsonError(503, "Unable to create a login right now.", requestId);
+      logProvision({ requestId, stage: "password_flag", kind, reason: "complete_password_change_failed" });
     }
   }
 

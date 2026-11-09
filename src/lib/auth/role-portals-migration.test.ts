@@ -89,6 +89,11 @@ describe("gym-scoped portal login", () => {
     expect(portalForm).toMatch(/Gym code/);
     expect(portalForm).not.toMatch(/portal === "owner".*gymCode/);
   });
+
+  it("does not treat a missing trainer login as a server outage", () => {
+    expect(signInRoute).toMatch(/lookup\.email/);
+    expect(signInRoute).toMatch(/GENERIC_ID_CREDENTIALS_MESSAGE/);
+  });
 });
 
 describe("role portal app surface", () => {
@@ -123,8 +128,19 @@ describe("role portal app surface", () => {
     expect(provisionRoute).not.toMatch(/plaintext/);
     expect(provisionRoute).not.toMatch(/deleteUser/);
     expect(provisionRoute).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
-    expect(provisionRoute).toMatch(/serverEnv\.supabaseServiceRoleKey/);
+    expect(provisionRoute).toMatch(/getSupabaseServiceRoleKey\(\)/);
     expect(provisionRoute).toMatch(/organization_id !== orgId/);
     expect(provisionRoute).toMatch(/requestId/);
+    expect(provisionRoute).toMatch(/verifyRecordLinked/);
+    expect(provisionRoute).toMatch(/Login server is not configured/);
+  });
+
+  it("fails closed on missing Owner, missing permission, missing service role, and unlinked Auth", () => {
+    expect(provisionRoute).toMatch(/Please sign in to continue/);
+    expect(provisionRoute).toMatch(/You don't have permission to do that/);
+    expect(provisionRoute).toMatch(/service_role_missing/);
+    expect(provisionRoute).toMatch(/Login was created but not linked/);
+    expect(provisionRoute).toMatch(/email_confirm: true/);
+    expect(provisionRoute).not.toMatch(/from\("trainers"\)[\s\S]*insert/);
   });
 });

@@ -118,6 +118,14 @@ describe("portal identifiers", () => {
     }
   });
 
+  it("maps the live DP001 trainer record to the internal Auth email", () => {
+    const recordId = "9f39b85d-3638-4db9-bee6-4081757c1093";
+    const names = loginUsernamesForRecord("DP001", recordId, "trainer");
+    expect(names[0]).toBe("dp001");
+    expect(toInternalAuthEmail(names[0])).toBe(`dp001@${INTERNAL_AUTH_EMAIL_DOMAIN}`);
+    expect(names).toContain(`dp001${recordId.replace(/-/g, "").slice(0, 6)}`);
+  });
+
   it("treats GoTrue trigger wrappers as username collisions", () => {
     expect(isAuthCreateCollision("Database error creating new user")).toBe(true);
     expect(isAuthCreateCollision("User already registered")).toBe(true);

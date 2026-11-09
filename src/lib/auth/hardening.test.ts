@@ -26,6 +26,9 @@ const memberDetail = read("src/components/members/member-detail.tsx");
 const memberForm = read("src/components/members/member-form.tsx");
 const addMemberForm = read("src/components/members/add-member-form.tsx");
 const orgMembers = read("src/lib/org/members.ts");
+const envSource = read("src/lib/env.ts");
+const serverEnvSource = read("src/lib/server-env.ts");
+const supabaseServer = read("src/lib/supabase/server.ts");
 
 describe("sign-in response", () => {
   it("does not return a user id to the browser", () => {
@@ -33,6 +36,31 @@ describe("sign-in response", () => {
     expect(signInRoute).not.toMatch(/userId:/);
     expect(session).toMatch(/payload\.ok/);
     expect(session).not.toMatch(/payload\.userId/);
+  });
+
+  it("logs a requestId when the admin client or lookup RPC is missing", () => {
+    expect(signInRoute).toMatch(/scope: "sign-in"/);
+    expect(signInRoute).toMatch(/admin_client_missing/);
+    expect(signInRoute).toMatch(/lookup_rpc_failed/);
+    expect(signInRoute).toMatch(/requestId/);
+  });
+});
+
+describe("server-only service role env", () => {
+  it("reads SUPABASE_SERVICE_ROLE_KEY statically outside the client env module", () => {
+    expect(envSource).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
+    expect(envSource).not.toMatch(/serverEnv/);
+    expect(serverEnvSource).toMatch(/process\.env\.SUPABASE_SERVICE_ROLE_KEY/);
+    expect(serverEnvSource).toMatch(/export function getSupabaseServiceRoleKey/);
+    expect(serverEnvSource).not.toMatch(/process\.env\[/);
+    expect(supabaseServer).toMatch(/from "@\/lib\/server-env"/);
+    expect(supabaseServer).toMatch(/serverEnv\.supabaseServiceRoleKey/);
+    expect(provisionLoginRoute).toMatch(/from "@\/lib\/server-env"/);
+    expect(provisionLoginRoute).toMatch(/getSupabaseServiceRoleKey\(\)/);
+    expect(provisionLoginRoute).toMatch(/LOGIN_SERVER_NOT_CONFIGURED/);
+    expect(provisionLoginRoute).toMatch(/verifyRecordLinked/);
+    expect(provisionLoginRoute).toMatch(/runtime = "nodejs"/);
+    expect(signInRoute).toMatch(/runtime = "nodejs"/);
   });
 });
 
@@ -84,9 +112,11 @@ describe("owner trainer login access", () => {
     expect(provisionLoginRoute).not.toMatch(/deleteUser/);
     expect(provisionLoginRoute).not.toMatch(/plaintext/);
     expect(provisionLoginRoute).not.toMatch(/SUPABASE_SERVICE_ROLE_KEY/);
-    expect(provisionLoginRoute).toMatch(/serverEnv\.supabaseServiceRoleKey/);
+    expect(provisionLoginRoute).toMatch(/getSupabaseServiceRoleKey\(\)/);
     expect(provisionLoginRoute).toMatch(/email_confirm: true/);
     expect(provisionLoginRoute).toMatch(/toInternalAuthEmail/);
+    expect(provisionLoginRoute).toMatch(/verifyRecordLinked/);
+    expect(provisionLoginRoute).toMatch(/LOGIN_CREATED_NOT_LINKED/);
     expect(loginPanel).toMatch(/if \(saving\) return/);
     expect(loginPanel).toMatch(/setValues\(emptyPasswords\(\)\)/);
   });

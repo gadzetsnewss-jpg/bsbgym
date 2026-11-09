@@ -11,6 +11,9 @@ import {
 import { loginSchema, portalLoginSchema, type PortalRole } from "@/lib/validation/auth-schemas";
 import { roleMatchesPortal } from "@/lib/auth/portals";
 
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
 type Lookup = { email: string | null; error: boolean };
 
 async function lookupByUsername(
@@ -63,9 +66,20 @@ async function membershipForUser(
   return { roleSlug: role?.slug ?? null, orgSlug: org?.slug ?? null };
 }
 
+function newRequestId(): string {
+  return crypto.randomUUID();
+}
+
+function logSignIn(entry: Record<string, unknown>) {
+  console.info(JSON.stringify({ scope: "sign-in", ...entry }));
+}
+
 export async function POST(request: Request) {
+  const requestId = newRequestId();
+
   if (!isSupabaseConfigured) {
-    return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
+    logSignIn({ requestId, stage: "config", status: 503, reason: "supabase_not_configured" });
+    return NextResponse.json({ error: "Supabase is not configured.", requestId }, { status: 503 });
   }
 
   let body: unknown;
@@ -104,15 +118,18 @@ export async function POST(request: Request) {
   const admin = await createServerSupabaseAdmin();
   const supabase = await createServerSupabase();
   if (!supabase) {
-    return NextResponse.json({ error: "Supabase is not configured." }, { status: 503 });
+    logSignIn({ requestId, stage: "config", status: 503, reason: "user_client_missing" });
+    return NextResponse.json({ error: "Supabase is not configured.", requestId }, { status: 503 });
   }
   if (!admin) {
-    return NextResponse.json({ error: "Unable to sign in right now." }, { status: 503 });
+    logSignIn({ requestId, stage: "config", status: 503, reason: "admin_client_missing" });
+    return NextResponse.json({ error: "Unable to sign in right now.", requestId }, { status: 503 });
   }
 
   const lookup = await lookupEmail(admin, portal, identifier, gymCode);
   if (lookup.error) {
-    return NextResponse.json({ error: "Unable to sign in right now." }, { status: 503 });
+    logSignIn({ requestId, stage: "lookup", status: 503, portal, reason: "lookup_rpc_failed" });
+    return NextResponse.json({ error: "Unable to sign in right now.", requestId }, { status: 503 });
   }
   if (!lookup.email) {
     return NextResponse.json({ error: failMessage }, { status: 401 });
