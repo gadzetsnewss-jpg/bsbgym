@@ -82,13 +82,13 @@ begin
   end if;
 
   -- Invalidate any existing active challenges for this trainer
-  update public.trainer_qr_challenges
+  update public.trainer_qr_challenges as tqc
   set status = 'revoked',
       revoked_at = now(),
       revoked_by = auth.uid()
-  where trainer_id = p_trainer_id
-    and organization_id = p_org_id
-    and status = 'active';
+  where tqc.trainer_id = p_trainer_id
+    and tqc.organization_id = p_org_id
+    and tqc.status = 'active';
 
   v_expires_at := now() + (coalesce(p_expires_in_seconds, 90) || ' seconds')::interval;
 
@@ -158,8 +158,8 @@ declare
   v_auth_email text;
 begin
   select * into v_rec
-  from public.trainer_qr_challenges
-  where token_hash = p_token_hash
+  from public.trainer_qr_challenges as tqc
+  where tqc.token_hash = p_token_hash
   for update;
 
   if v_rec.id is null then
@@ -175,19 +175,19 @@ begin
   end if;
 
   if v_rec.expires_at <= now() or v_rec.status = 'expired' then
-    update public.trainer_qr_challenges
+    update public.trainer_qr_challenges as tqc
     set status = 'expired'
-    where id = v_rec.id;
+    where tqc.id = v_rec.id;
     raise exception 'QR challenge token has expired.' using errcode = 'P0005';
   end if;
 
   -- Mark atomically as consumed
-  update public.trainer_qr_challenges
+  update public.trainer_qr_challenges as tqc
   set status = 'consumed',
       consumed_at = now(),
       consumed_ip = p_ip,
       consumed_user_agent = p_user_agent
-  where id = v_rec.id;
+  where tqc.id = v_rec.id;
 
   -- Get trainer info
   select
@@ -234,13 +234,13 @@ begin
       using errcode = '42501';
   end if;
 
-  update public.trainer_qr_challenges
+  update public.trainer_qr_challenges as tqc
   set status = 'revoked',
       revoked_at = now(),
       revoked_by = auth.uid()
-  where trainer_id = p_trainer_id
-    and organization_id = p_org_id
-    and status = 'active';
+  where tqc.trainer_id = p_trainer_id
+    and tqc.organization_id = p_org_id
+    and tqc.status = 'active';
 
   return true;
 end;
