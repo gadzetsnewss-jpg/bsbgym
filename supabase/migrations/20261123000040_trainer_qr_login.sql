@@ -9,7 +9,7 @@ create table if not exists public.trainer_qr_challenges (
   token_hash text not null unique,
   status text not null default 'active' check (status in ('active', 'consumed', 'expired', 'revoked')),
   expires_at timestamptz not null,
-  created_by uuid not null references auth.users(id),
+  created_by uuid references auth.users(id),
   created_at timestamptz not null default now(),
   consumed_at timestamptz,
   consumed_ip text,
@@ -22,6 +22,7 @@ create index if not exists idx_trainer_qr_token_hash on public.trainer_qr_challe
 create index if not exists idx_trainer_qr_trainer_status on public.trainer_qr_challenges (trainer_id, status);
 create index if not exists idx_trainer_qr_org_id on public.trainer_qr_challenges (organization_id);
 
+alter table public.trainer_qr_challenges alter column created_by drop not null;
 alter table public.trainer_qr_challenges enable row level security;
 
 -- Policy: Owners and Admins can view and manage QR challenges for their organization
@@ -107,7 +108,15 @@ begin
     p_token_hash,
     'active',
     v_expires_at,
-    auth.uid()
+    coalesce(auth.uid(), (
+      select m.user_id
+      from public.organization_members m
+      join public.roles r on r.id = m.role_id
+      where m.organization_id = p_org_id
+        and r.slug in ('owner', 'admin')
+        and m.status = 'active'
+      limit 1
+    ), v_user_id)
   )
   returning * into v_inserted;
 
