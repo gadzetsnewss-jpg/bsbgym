@@ -61,7 +61,11 @@ declare
   v_inserted public.trainer_qr_challenges%rowtype;
 begin
   -- Validate caller is org admin
-  if not public.is_org_admin(p_org_id) then
+  if not (
+    public.is_org_admin(p_org_id)
+    or auth.jwt() ->> 'role' = 'service_role'
+    or current_user in ('service_role', 'postgres')
+  ) then
     raise exception 'Access denied: only gym owners and administrators can generate trainer QR logins.'
       using errcode = '42501';
   end if;
@@ -212,7 +216,11 @@ security definer
 set search_path = public, auth
 as $$
 begin
-  if not public.is_org_admin(p_org_id) then
+  if not (
+    public.is_org_admin(p_org_id)
+    or auth.jwt() ->> 'role' = 'service_role'
+    or current_user in ('service_role', 'postgres')
+  ) then
     raise exception 'Access denied: only gym owners and administrators can revoke QR challenges.'
       using errcode = '42501';
   end if;

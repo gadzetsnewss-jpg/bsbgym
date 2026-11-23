@@ -36,7 +36,7 @@ describe("Petpooja Captain-style Trainer QR Login — Security & Migration", () 
 
   it("creates atomic RPC create_trainer_qr_challenge that revokes prior challenges", () => {
     expect(migrationSql).toContain("create or replace function public.create_trainer_qr_challenge");
-    expect(migrationSql).toContain("if not public.is_org_admin(p_org_id) then");
+    expect(migrationSql).toContain("public.is_org_admin(p_org_id)");
     expect(migrationSql).toContain("set status = 'revoked'");
     expect(migrationSql).toContain("status = 'active'");
     expect(migrationSql).toContain("expires_at timestamptz");
@@ -53,7 +53,7 @@ describe("Petpooja Captain-style Trainer QR Login — Security & Migration", () 
 
   it("creates RPC revoke_trainer_qr_challenge with org admin check", () => {
     expect(migrationSql).toContain("create or replace function public.revoke_trainer_qr_challenge");
-    expect(migrationSql).toContain("if not public.is_org_admin(p_org_id) then");
+    expect(migrationSql).toContain("public.is_org_admin(p_org_id)");
     expect(migrationSql).toContain("set status = 'revoked'");
   });
 

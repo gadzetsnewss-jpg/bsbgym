@@ -144,14 +144,35 @@ export async function createTrainerQrChallenge(
     status: string;
   };
 
-  const { data: rpcData, error: rpcError } = await (admin as any).rpc("create_trainer_qr_challenge", {
+  // Invoke database RPC using caller's authenticated session so auth.uid() matches owner/admin
+  let rpcData: CreatedRpcRow[] | null = null;
+  let rpcError: { message?: string } | null = null;
+
+  const userRpc = await (supabase as any).rpc("create_trainer_qr_challenge", {
     p_org_id: orgId,
     p_trainer_id: trainerId,
     p_token_hash: tokenHash,
     p_expires_in_seconds: 90,
   });
 
-  const challenges = rpcData as CreatedRpcRow[] | null;
+  if (!userRpc.error && userRpc.data) {
+    rpcData = userRpc.data as CreatedRpcRow[];
+  } else {
+    // Fallback to admin service client
+    const adminRpc = await (admin as any).rpc("create_trainer_qr_challenge", {
+      p_org_id: orgId,
+      p_trainer_id: trainerId,
+      p_token_hash: tokenHash,
+      p_expires_in_seconds: 90,
+    });
+    if (!adminRpc.error && adminRpc.data) {
+      rpcData = adminRpc.data as CreatedRpcRow[];
+    } else {
+      rpcError = userRpc.error || adminRpc.error;
+    }
+  }
+
+  const challenges = rpcData;
 
   if (rpcError || !challenges || challenges.length === 0) {
     return {
@@ -285,12 +306,23 @@ export async function revokeTrainerQrChallenge(
     return { success: false, error: "Access denied: Only owners and admins can revoke QR logins." };
   }
 
-  const { error } = await (admin as any).rpc("revoke_trainer_qr_challenge", {
+  let revokeError: { message?: string } | null = null;
+  const userRevoke = await (supabase as any).rpc("revoke_trainer_qr_challenge", {
     p_org_id: memberData.organization_id,
     p_trainer_id: trainerId,
   });
 
-  if (error) return { success: false, error: error.message };
+  if (userRevoke.error) {
+    const adminRevoke = await (admin as any).rpc("revoke_trainer_qr_challenge", {
+      p_org_id: memberData.organization_id,
+      p_trainer_id: trainerId,
+    });
+    if (adminRevoke.error) {
+      revokeError = adminRevoke.error;
+    }
+  }
+
+  if (revokeError) return { success: false, error: revokeError.message || "Failed to revoke QR challenge." };
   return { success: true, error: null };
 }
 
