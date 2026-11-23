@@ -194,6 +194,8 @@ export function MembersList({
     void load();
   };
 
+  const isTrainer = hasRole(["trainer"]);
+
   const columns: Column<GymMemberRow>[] = [
     {
       id: "member",
@@ -213,23 +215,33 @@ export function MembersList({
       header: "Phone",
       cell: (row) => <span className="text-sm text-neutral-600">{row.phone}</span>,
     },
-    {
-      id: "email",
-      header: "Email",
-      cell: (row) => <span className="text-sm text-neutral-600">{row.email ?? "—"}</span>,
-    },
+    ...(!isTrainer
+      ? [
+          {
+            id: "email" as const,
+            header: "Email",
+            cell: (row: GymMemberRow) => (
+              <span className="text-sm text-neutral-600">{row.email ?? "—"}</span>
+            ),
+          },
+        ]
+      : []),
     {
       id: "branch",
       header: "Branch",
       cell: (row) => <span className="text-sm text-neutral-600">{row.branchName}</span>,
     },
-    {
-      id: "trainer",
-      header: "Trainer",
-      cell: (row) => (
-        <span className="text-sm text-neutral-600">{row.assignedTrainerName ?? "Unassigned"}</span>
-      ),
-    },
+    ...(!isTrainer
+      ? [
+          {
+            id: "trainer" as const,
+            header: "Trainer",
+            cell: (row: GymMemberRow) => (
+              <span className="text-sm text-neutral-600">{row.assignedTrainerName ?? "Unassigned"}</span>
+            ),
+          },
+        ]
+      : []),
     {
       id: "joined",
       header: "Joined",
@@ -247,6 +259,21 @@ export function MembersList({
       header: "",
       align: "right",
       cell: (row) => {
+        if (isTrainer) {
+          return (
+            <RowActions
+              label={`Actions for ${displayName(row)}`}
+              items={[
+                { label: "View details", href: `/members/${row.id}` },
+                { label: "Schedule PT", href: `/trainers/pt-sessions/add?memberId=${row.id}` },
+                { label: "Workout plan", href: `/fitness/workout-plans/add?memberId=${row.id}` },
+                { label: "Diet plan", href: `/fitness/diet-plans/add?memberId=${row.id}` },
+                { label: "Progress & measurements", href: `/fitness/progress?memberId=${row.id}` },
+              ]}
+            />
+          );
+        }
+
         const items = [];
         items.push({ label: "View details", href: `/members/${row.id}` });
         if (canUpdate) {
@@ -361,20 +388,22 @@ export function MembersList({
               ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
             ]}
           />
-          <Select
-            aria-label="Filter by trainer"
-            className="w-full sm:w-48"
-            value={trainerId}
-            onChange={(event) => {
-              setTrainerId(event.target.value as string | "all" | "unassigned");
-              setPage(1);
-            }}
-            options={[
-              { value: "all", label: "All trainers" },
-              { value: "unassigned", label: "Unassigned" },
-              ...trainers.map((trainer) => ({ value: trainer.id, label: trainer.name })),
-            ]}
-          />
+          {!isTrainer && (
+            <Select
+              aria-label="Filter by trainer"
+              className="w-full sm:w-48"
+              value={trainerId}
+              onChange={(event) => {
+                setTrainerId(event.target.value as string | "all" | "unassigned");
+                setPage(1);
+              }}
+              options={[
+                { value: "all", label: "All trainers" },
+                { value: "unassigned", label: "Unassigned" },
+                ...trainers.map((trainer) => ({ value: trainer.id, label: trainer.name })),
+              ]}
+            />
+          )}
         </FilterBar>
       </div>
 

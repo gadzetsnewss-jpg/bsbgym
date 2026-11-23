@@ -1,5 +1,7 @@
 "use client";
 
+import * as React from "react";
+
 import { GreetingBanner } from "@/components/dashboard/greeting-banner";
 import { KpiGrid } from "@/components/dashboard/kpi-grid";
 import { RevenueOverview } from "@/components/dashboard/revenue-overview";
@@ -15,14 +17,17 @@ import { useOrganization } from "@/components/auth/org-provider";
 
 export function DashboardHome() {
   const { hasRole } = useOrganization();
+  const [cookiePortal, setCookiePortal] = React.useState<string | null>(null);
 
-  if (hasRole(["trainer"])) {
-    return (
-      <div className="space-y-6">
-        <GreetingBanner />
-        <TrainerHome />
-      </div>
-    );
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      const match = document.cookie.split("; ").find((row) => row.startsWith("bsb_portal="));
+      if (match) setCookiePortal(decodeURIComponent(match.split("=")[1]));
+    }
+  }, []);
+
+  if (hasRole(["trainer"]) || cookiePortal === "trainer") {
+    return <TrainerHome />;
   }
 
   if (hasRole(["member"])) {

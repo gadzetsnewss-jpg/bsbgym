@@ -5,20 +5,34 @@ import { z } from "zod";
 import { useToast } from "@/components/ui/toast";
 import { useOrganization } from "@/components/auth/org-provider";
 import { Card, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import { FormSection } from "@/components/ui/form-section";
 import { updateProfile } from "@/lib/auth/profile";
 import { ownerRecoveryEmailSchema, profileSchema } from "@/lib/validation/auth-schemas";
 import { requestOwnerRecoveryEmailChange } from "@/lib/auth/session";
+import {
+  fetchLinkedTrainerProfile,
+  type LinkedTrainerProfile,
+} from "@/lib/org/gym-members";
 
 type ProfileValues = z.infer<typeof profileSchema>;
 
 export function ProfileForm() {
   const { toast } = useToast();
-  const { profile, updateProfileLocal, isOwner, recoveryEmailEnrolled, recoveryEmailMasked } =
-    useOrganization();
+  const {
+    organization,
+    currentBranch,
+    profile,
+    updateProfileLocal,
+    isOwner,
+    hasRole,
+    recoveryEmailEnrolled,
+    recoveryEmailMasked,
+  } = useOrganization();
+  const isTrainer = hasRole(["trainer"]);
+  const [trainerProfile, setTrainerProfile] = React.useState<LinkedTrainerProfile | null>(null);
 
   const [values, setValues] = React.useState<ProfileValues>({
     firstName: profile?.firstName ?? "",
@@ -33,6 +47,19 @@ export function ProfileForm() {
   const [recoveryError, setRecoveryError] = React.useState<string | undefined>(undefined);
   const [recoverySubmitting, setRecoverySubmitting] = React.useState(false);
   const [recoverySent, setRecoverySent] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isTrainer || !organization?.id || !profile?.id) return;
+    let active = true;
+    void fetchLinkedTrainerProfile(organization.id, profile.id).then((result) => {
+      if (active && result.data) {
+        setTrainerProfile(result.data);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [isTrainer, organization?.id, profile?.id]);
 
   React.useEffect(() => {
     setValues({
@@ -151,6 +178,40 @@ export function ProfileForm() {
         </FormField>
       </FormSection>
 
+      {isTrainer && (
+        <FormSection
+          title="Trainer details"
+          description="Your trainer assignment profile and branch information."
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <p className="text-sm font-medium text-ink">Role</p>
+              <p className="mt-0.5 text-sm font-semibold text-teal-700">Trainer</p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-ink">Trainer Code</p>
+              <p className="mt-0.5 text-sm font-mono text-neutral-600">
+                {trainerProfile?.code ?? "—"}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-ink">Branch</p>
+              <p className="mt-0.5 text-sm text-neutral-600">
+                {trainerProfile?.branchName ?? currentBranch?.name ?? "Main Branch"}
+              </p>
+            </div>
+            {trainerProfile?.specialization && (
+              <div>
+                <p className="text-sm font-medium text-ink">Specialization</p>
+                <p className="mt-0.5 text-sm text-neutral-600">
+                  {trainerProfile.specialization}
+                </p>
+              </div>
+            )}
+          </div>
+        </FormSection>
+      )}
+
       <FormSection title="Sign-in details" description="Your username is used to sign in. Contact number is private.">
         <div>
           <p className="text-sm font-medium text-ink">Username</p>
@@ -159,6 +220,11 @@ export function ProfileForm() {
         <div>
           <p className="text-sm font-medium text-ink">Contact number</p>
           <p className="mt-0.5 text-sm text-neutral-500">{profile.contactNumber ?? profile.phone ?? "—"}</p>
+        </div>
+        <div className="pt-2">
+          <ButtonLink href="/change-password" variant="outline" size="sm">
+            Change password
+          </ButtonLink>
         </div>
       </FormSection>
 

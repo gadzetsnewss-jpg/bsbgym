@@ -8,6 +8,7 @@ import {
   BadgeCheck,
   Calculator,
   CalendarClock,
+  CalendarRange,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
@@ -40,12 +41,17 @@ import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
 import {
   createInvoice,
+  createInstallmentSchedule,
   fetchGstRates,
   fetchInvoice,
   fetchMemberForInvoice,
   fetchMembershipPlansForInvoice,
   recordPayments,
 } from "@/lib/billing/client";
+import {
+  INSTALLMENT_PRESETS,
+  splitInstallments,
+} from "@/lib/billing/installments";
 import {
   calculateInvoiceTotals,
   calculateLineGst,
@@ -368,12 +374,17 @@ export function NewInvoiceForm() {
   const [saving, setSaving] = React.useState<"draft" | "finalize" | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = React.useState<Record<string, string>>({});
+  const [installmentPlan, setInstallmentPlan] = React.useState<string>("1");
+  const [customInstallmentCount, setCustomInstallmentCount] = React.useState<string>("3");
+  const [firstInstallmentDate, setFirstInstallmentDate] = React.useState<string>("");
   const [success, setSuccess] = React.useState<{
     invoice: InvoiceRow;
     paid: number;
     balance: number;
     methods: string[];
     membershipWarning: string | null;
+    installmentCount?: number;
+    installmentWarning?: string | null;
   } | null>(null);
 
   const paymentKeyRef = React.useRef(1);
@@ -513,22 +524,55 @@ export function NewInvoiceForm() {
     }
   }, [issueDate, settings.membership.startDateBehavior]);
 
+  React.useEffect(() => {
+    if (issueDate && !firstInstallmentDate) {
+      setFirstInstallmentDate(issueDate);
+    }
+  }, [issueDate, firstInstallmentDate]);
+
+  const resolvedInstallmentCount = React.useMemo(() => {
+    if (installmentPlan === "1") return 1;
+    if (installmentPlan === "custom") {
+      const parsed = Math.floor(Number(customInstallmentCount));
+      return Number.isInteger(parsed) && parsed >= 2 && parsed <= 24 ? parsed : 2;
+    }
+    return Number(installmentPlan) || 1;
+  }, [installmentPlan, customInstallmentCount]);
+
+  const fullInstallments = React.useMemo(() => {
+    if (resolvedInstallmentCount <= 1 || totals.grandTotal <= 0) return [];
+    return splitInstallments(
+      totals.grandTotal,
+      resolvedInstallmentCount,
+      firstInstallmentDate || issueDate || todayIso(),
+    );
+  }, [resolvedInstallmentCount, totals.grandTotal, firstInstallmentDate, issueDate]);
+
   const paymentTotal = React.useMemo(
     () => roundMoney(payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0)),
     [payments],
   );
   const remaining = Math.max(totals.grandTotal - paymentTotal, 0);
 
-  // Keep a single untouched payment row in sync with the invoice total.
+  // Keep a single untouched payment row in sync with the invoice total or 1st installment.
   React.useEffect(() => {
     if (!paymentReceived) return;
     if (paymentsDirty.current) return;
-    setPayments((prev) =>
-      prev.length === 1
-        ? [{ ...prev[0], amount: totals.grandTotal > 0 ? totals.grandTotal.toFixed(2) : "" }]
-        : prev,
-    );
-  }, [totals.grandTotal, paymentReceived]);
+    if (installmentPlan !== "1" && fullInstallments.length > 0) {
+      const firstAmount = fullInstallments[0].amount;
+      setPayments((prev) =>
+        prev.length === 1
+          ? [{ ...prev[0], amount: firstAmount > 0 ? firstAmount.toFixed(2) : "" }]
+          : prev,
+      );
+    } else {
+      setPayments((prev) =>
+        prev.length === 1
+          ? [{ ...prev[0], amount: totals.grandTotal > 0 ? totals.grandTotal.toFixed(2) : "" }]
+          : prev,
+      );
+    }
+  }, [totals.grandTotal, paymentReceived, installmentPlan, fullInstallments]);
 
   const defaultGst = gstRates.find((rate) => rate.isDefault) ?? gstRates[0];
 
@@ -816,6 +860,35 @@ export function NewInvoiceForm() {
       }
     }
 
+    let installmentWarning: string | null = null;
+    let scheduledCount = 0;
+    if (installmentPlan !== "1" && resolvedInstallmentCount > 1) {
+      const remainingBalance = Math.max(0, totals.grandTotal - paymentRowsTotal(paymentRows));
+      if (remainingBalance > 0) {
+        const firstInstAmount = fullInstallments[0]?.amount ?? 0;
+        const paidAtLeastFirst = paymentRowsTotal(paymentRows) >= firstInstAmount;
+        const countToSchedule = paidAtLeastFirst
+          ? resolvedInstallmentCount - 1
+          : resolvedInstallmentCount;
+        const startDateToSchedule = paidAtLeastFirst
+          ? addMonthsIso(firstInstallmentDate || issueDate, 1)
+          : (firstInstallmentDate || issueDate);
+
+        if (countToSchedule >= 1) {
+          const scheduleResult = await createInstallmentSchedule(
+            invoiceId,
+            countToSchedule,
+            startDateToSchedule,
+          );
+          if (scheduleResult.error) {
+            installmentWarning = scheduleResult.error.message;
+          } else {
+            scheduledCount = countToSchedule;
+          }
+        }
+      }
+    }
+
     const invoiceResult = await fetchInvoice(orgId, invoiceId);
     const paymentTotalRounded = Math.min(paymentRowsTotal(paymentRows), totals.grandTotal);
     const invoice: InvoiceRow =
@@ -860,6 +933,8 @@ export function NewInvoiceForm() {
       balance: invoice.balance,
       methods,
       membershipWarning,
+      installmentCount: scheduledCount,
+      installmentWarning,
     });
     toast({ title: "Invoice created successfully", variant: "success" });
   };
@@ -908,6 +983,17 @@ export function NewInvoiceForm() {
             <span>Balance</span>
             <span className="tabular-nums">{formatCurrency(success.balance, currency)}</span>
           </div>
+          {Boolean(success.installmentCount) && (
+            <div className="flex justify-between border-t border-border pt-2 text-primary-700">
+              <span className="font-medium">Installment schedule</span>
+              <span className="font-semibold">{success.installmentCount} remaining installment(s) scheduled</span>
+            </div>
+          )}
+          {success.installmentWarning && (
+            <p role="alert" className="text-xs text-amber-600">
+              {success.installmentWarning}
+            </p>
+          )}
           <div className="flex justify-between">
             <span className="text-neutral-500">Payment method(s)</span>
             <span>
@@ -1469,9 +1555,9 @@ export function NewInvoiceForm() {
 
       <StepCard
         step={6}
-        title="Payment"
+        title="Payment & Installments"
         icon={CreditCard}
-        description="Record what the customer paid now. Split a payment across methods if needed."
+        description="Choose full payment or 3–5 installments. Record payment received at sale."
         actions={
           <Button type="button" variant="outline" size="sm" onClick={addPayment} disabled={!paymentReceived}>
             <Plus aria-hidden="true" className="size-4" />
@@ -1479,6 +1565,115 @@ export function NewInvoiceForm() {
           </Button>
         }
       >
+        <div className="mb-5 space-y-4 rounded-xl border border-border bg-surface-muted/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="flex items-center gap-2">
+                <CalendarRange aria-hidden="true" className="size-4 text-primary-600" />
+                <h3 className="text-sm font-semibold text-ink">Payment Plan</h3>
+              </div>
+              <p className="mt-0.5 text-xs text-neutral-500">
+                Full payment or 3–5 installments. First installment is due at sale.
+              </p>
+            </div>
+            {installmentPlan !== "1" && (
+              <span className="inline-flex items-center rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-semibold text-primary-800">
+                {resolvedInstallmentCount} Installments
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Payment schedule">
+              <Select
+                value={installmentPlan}
+                onChange={(event) => {
+                  paymentsDirty.current = false;
+                  setInstallmentPlan(event.target.value);
+                }}
+                options={[...INSTALLMENT_PRESETS]}
+              />
+            </FormField>
+
+            {installmentPlan === "custom" && (
+              <FormField label="Number of installments" hint="Between 2 and 24">
+                <Input
+                  type="number"
+                  min={2}
+                  max={24}
+                  value={customInstallmentCount}
+                  onChange={(event) => {
+                    paymentsDirty.current = false;
+                    setCustomInstallmentCount(event.target.value);
+                  }}
+                />
+              </FormField>
+            )}
+
+            {installmentPlan !== "1" && (
+              <FormField label="First installment due date" hint="Due at sale (defaults to invoice date)">
+                <Input
+                  type="date"
+                  value={firstInstallmentDate || issueDate}
+                  onChange={(event) => setFirstInstallmentDate(event.target.value)}
+                />
+              </FormField>
+            )}
+          </div>
+
+          {fullInstallments.length > 0 && (
+            <div className="overflow-x-auto rounded-lg border border-border bg-white shadow-card">
+              <table className="min-w-full text-xs sm:text-sm">
+                <thead className="border-b border-border bg-neutral-50 text-left text-xs font-semibold tracking-wide text-neutral-600 uppercase">
+                  <tr>
+                    <th className="px-3 py-2">Installment</th>
+                    <th className="px-3 py-2">Due Date</th>
+                    <th className="px-3 py-2 text-right">Amount</th>
+                    <th className="px-3 py-2 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {fullInstallments.map((inst, idx) => {
+                    const isFirst = idx === 0;
+                    const isFirstPaid = isFirst && paymentReceived && paymentTotal >= inst.amount;
+                    return (
+                      <tr key={inst.sortOrder} className={isFirst ? "bg-primary-50/30" : ""}>
+                        <td className="px-3 py-2 font-medium tabular-nums text-ink">
+                          Installment {inst.sortOrder + 1}
+                        </td>
+                        <td className="px-3 py-2 text-neutral-600">
+                          {formatDate(inst.dueDate)}
+                          {isFirst && " (Today / Sale)"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-semibold tabular-nums text-ink">
+                          {formatCurrency(inst.amount, currency)}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          {isFirst ? (
+                            isFirstPaid ? (
+                              <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-800">
+                                Paid at sale
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                                Due at sale
+                              </span>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center rounded-md bg-neutral-100 px-2 py-0.5 text-xs font-medium text-neutral-700">
+                              Upcoming
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -1487,10 +1682,14 @@ export function NewInvoiceForm() {
               onChange={(event) => togglePaymentReceived(event.target.checked)}
               className="size-4 rounded border-border text-primary-600 focus-visible:ring-primary-500"
             />
-            <span className="font-medium text-ink">Payment received</span>
+            <span className="font-medium text-ink">
+              {installmentPlan !== "1" ? "Collect 1st installment at sale" : "Payment received"}
+            </span>
           </label>
           <span className="text-xs text-neutral-500">
-            Uncheck to keep the invoice unpaid and use Save draft.
+            {installmentPlan !== "1"
+              ? "Record payment received today towards the first installment."
+              : "Uncheck to keep the invoice unpaid and use Save draft."}
           </span>
         </div>
 

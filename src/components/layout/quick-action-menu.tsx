@@ -1,13 +1,20 @@
 "use client";
 
+import * as React from "react";
+
 import type { LucideIcon } from "lucide-react";
 import {
+  CalendarCheck,
   CreditCard,
+  Dumbbell,
   FilePlus,
+  LineChart,
   Plus,
+  Salad,
   ScanLine,
   Target,
   UserPlus,
+  Users,
 } from "lucide-react";
 import { Dropdown } from "@/components/ui/dropdown";
 import { QUICK_ACTIONS } from "@/data/mock-dashboard";
@@ -31,19 +38,39 @@ const QUICK_ACTION_PERMISSIONS: Record<string, string> = {
   "qa-5": "crm.manage",
 };
 
-export function QuickActionMenu({ className }: { className?: string }) {
-  const { can, context } = useOrganization();
+const TRAINER_QUICK_ACTIONS = [
+  { label: "Schedule PT", href: "/trainers/pt-sessions/add", icon: CalendarCheck },
+  { label: "Create Workout Plan", href: "/fitness/workout-plans/add", icon: Dumbbell },
+  { label: "Create Diet Plan", href: "/fitness/diet-plans/add", icon: Salad },
+  { label: "Record Progress", href: "/fitness/progress", icon: LineChart },
+  { label: "My Members", href: "/members", icon: Users },
+];
 
-  const items = QUICK_ACTIONS.filter(
-    (action) =>
-      context === null ||
-      !QUICK_ACTION_PERMISSIONS[action.id] ||
-      can(QUICK_ACTION_PERMISSIONS[action.id]),
-  ).map((action) => ({
-    label: action.label,
-    icon: QUICK_ACTION_ICONS[action.id] ?? FilePlus,
-    href: action.href,
-  }));
+export function QuickActionMenu({ className }: { className?: string }) {
+  const { can, context, hasRole } = useOrganization();
+  const [cookiePortal, setCookiePortal] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      const match = document.cookie.split("; ").find((row) => row.startsWith("bsb_portal="));
+      if (match) setCookiePortal(decodeURIComponent(match.split("=")[1]));
+    }
+  }, []);
+
+  const isTrainer = hasRole(["trainer"]) || cookiePortal === "trainer";
+
+  const items = isTrainer
+    ? TRAINER_QUICK_ACTIONS
+    : QUICK_ACTIONS.filter(
+        (action) =>
+          context === null ||
+          !QUICK_ACTION_PERMISSIONS[action.id] ||
+          can(QUICK_ACTION_PERMISSIONS[action.id]),
+      ).map((action) => ({
+        label: action.label,
+        icon: QUICK_ACTION_ICONS[action.id] ?? FilePlus,
+        href: action.href,
+      }));
 
   return (
     <Dropdown

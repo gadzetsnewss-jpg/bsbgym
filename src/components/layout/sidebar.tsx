@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronsLeft, ChevronsRight, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NAV_SECTIONS } from "@/config/navigation";
+import { NAV_SECTIONS, TRAINER_NAV_SECTION } from "@/config/navigation";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { Logo } from "@/components/layout/logo";
 import { DecorativeIcon } from "@/components/ui/decorative-icon";
@@ -73,21 +73,32 @@ interface SidebarNavProps {
 }
 
 function SidebarNav({ collapsed, pathname, onNavigate }: SidebarNavProps) {
-  const { can, context } = useOrganization();
+  const { can, context, hasRole } = useOrganization();
+  const [cookiePortal, setCookiePortal] = React.useState<string | null>(null);
 
-  // Permission-aware navigation: items with a `permission` are hidden when the
-  // member's role does not grant it. UI-only gating - RLS and the server-side
-  // guards remain the actual security boundary. In preview mode there is no
-  // real context, so the full navigation is shown for exploration.
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      const match = document.cookie.split("; ").find((row) => row.startsWith("bsb_portal="));
+      if (match) setCookiePortal(decodeURIComponent(match.split("=")[1]));
+    }
+  }, []);
+
+  const isTrainer = hasRole(["trainer"]) || cookiePortal === "trainer";
+
+  // Permission-aware navigation: Trainers see ONLY the eight approved Trainer Portal
+  // items in exact order. For Owner/Admin/Staff, items are gated by role permissions.
   const sections = React.useMemo<NavSection[]>(() => {
-    const preview = context === null;
+    if (isTrainer) {
+      return [TRAINER_NAV_SECTION];
+    }
+    const preview = context === null && cookiePortal !== "trainer";
     return NAV_SECTIONS.map((section) => ({
       ...section,
       items: section.items.filter(
         (item) => preview || !item.permission || can(item.permission),
       ),
     })).filter((section) => section.items.length > 0);
-  }, [can, context]);
+  }, [can, context, isTrainer, cookiePortal]);
 
   return (
     <nav aria-label="Main navigation" className="flex-1 overflow-y-auto px-3 pb-4">
@@ -123,7 +134,29 @@ function SidebarNav({ collapsed, pathname, onNavigate }: SidebarNavProps) {
   );
 }
 
-function SidebarFooter({ collapsed }: { collapsed: boolean }) {
+function SidebarFooter({ collapsed, isTrainer }: { collapsed: boolean; isTrainer?: boolean }) {
+  if (isTrainer) {
+    return (
+      <div className="border-t border-white/10 p-3">
+        {!collapsed ? (
+          <div className="rounded-lg bg-white/5 p-2.5 text-center">
+            <p className="text-xs font-semibold text-white">Trainer Access</p>
+            <p className="mt-0.5 text-[11px] text-primary-200/70">
+              Assigned members & PT sessions
+            </p>
+          </div>
+        ) : (
+          <div
+            title="Trainer Portal"
+            className="flex size-9 items-center justify-center rounded-lg bg-white/5 text-primary-300"
+          >
+            <Sparkles aria-hidden="true" className="size-4" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="border-t border-white/10 p-3">
       {collapsed ? (
@@ -151,6 +184,21 @@ function SidebarFooter({ collapsed }: { collapsed: boolean }) {
 export function Sidebar() {
   const { collapsed, toggleCollapsed, mobileOpen, closeMobile } = useSidebar();
   const pathname = usePathname();
+  const { hasRole, profile } = useOrganization();
+  const [cookiePortal, setCookiePortal] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (typeof document !== "undefined") {
+      const match = document.cookie.split("; ").find((row) => row.startsWith("bsb_portal="));
+      if (match) setCookiePortal(decodeURIComponent(match.split("=")[1]));
+    }
+  }, []);
+
+  const isTrainer = hasRole(["trainer"]) || cookiePortal === "trainer";
+  const trainerName =
+    [profile?.firstName, profile?.lastName].filter(Boolean).join(" ").trim() ||
+    profile?.username ||
+    "Trainer";
 
   return (
     <>
@@ -161,11 +209,28 @@ export function Sidebar() {
           collapsed ? "w-[72px]" : "w-64",
         )}
       >
-        <div className={cn("flex h-16 shrink-0 items-center border-b border-white/10", collapsed ? "justify-center px-0" : "px-5")}>
-          <Logo variant="light" compact={collapsed} />
+        <div
+          className={cn(
+            "flex flex-col border-b border-white/10",
+            collapsed ? "items-center py-4 px-0" : "px-5 py-3.5",
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <Logo variant="light" compact={collapsed} />
+          </div>
+          {isTrainer && !collapsed && (
+            <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5">
+              <span className="truncate text-[11px] font-medium text-primary-200">
+                Trainer Portal · {trainerName}
+              </span>
+              <span className="w-fit rounded bg-primary-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary-300">
+                Role: Trainer
+              </span>
+            </div>
+          )}
         </div>
         <SidebarNav collapsed={collapsed} pathname={pathname} />
-        <SidebarFooter collapsed={collapsed} />
+        <SidebarFooter collapsed={collapsed} isTrainer={isTrainer} />
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -189,18 +254,31 @@ export function Sidebar() {
             onClick={closeMobile}
           />
           <aside className="absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col bg-primary-950 shadow-modal">
-            <div className="flex h-16 shrink-0 items-center justify-between border-b border-white/10 px-5">
-              <Logo variant="light" />
-              <button
-                type="button"
-                aria-label="Close navigation"
-                onClick={closeMobile}
-                className="rounded-lg p-1.5 text-primary-100/60 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-primary-400"
-              >
-                <X aria-hidden="true" className="size-5" />
-              </button>
+            <div className="flex flex-col border-b border-white/10 px-5 py-3.5">
+              <div className="flex items-center justify-between">
+                <Logo variant="light" />
+                <button
+                  type="button"
+                  aria-label="Close navigation"
+                  onClick={closeMobile}
+                  className="rounded-lg p-1.5 text-primary-100/60 transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-primary-400"
+                >
+                  <X aria-hidden="true" className="size-5" />
+                </button>
+              </div>
+              {isTrainer && (
+                <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5">
+                  <span className="truncate text-[11px] font-medium text-primary-200">
+                    Trainer Portal · {trainerName}
+                  </span>
+                  <span className="w-fit rounded bg-primary-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary-300">
+                    Role: Trainer
+                  </span>
+                </div>
+              )}
             </div>
             <SidebarNav collapsed={false} pathname={pathname} onNavigate={closeMobile} />
+            <SidebarFooter collapsed={false} isTrainer={isTrainer} />
           </aside>
         </div>
       )}

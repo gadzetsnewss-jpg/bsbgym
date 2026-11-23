@@ -31,8 +31,9 @@ export interface ResourceDetailProps<TRow> {
 }
 
 export function ResourceDetail<TRow>({ config, id, children, extras }: ResourceDetailProps<TRow>) {
-  const { organization, branches, can } = useOrganization();
+  const { organization, branches, can, hasRole } = useOrganization();
   const orgId = organization?.id;
+  const isTrainer = hasRole(["trainer"]);
 
   const branchOptions = React.useMemo<SelectOption[]>(
     () => branches.map((branch) => ({ value: branch.id, label: `${branch.name} (${branch.code})` })),
@@ -43,8 +44,9 @@ export function ResourceDetail<TRow>({ config, id, children, extras }: ResourceD
 
   const canEdit = Boolean(
     config.adapter.update &&
-      (config.permissions.update ?? config.permissions.create) &&
-      can((config.permissions.update ?? config.permissions.create) as string),
+      (((config.permissions.update ?? config.permissions.create) &&
+        can((config.permissions.update ?? config.permissions.create) as string)) ||
+        (config.key === "pt_sessions" && isTrainer)),
   );
 
   const [row, setRow] = React.useState<TRow | null>(null);

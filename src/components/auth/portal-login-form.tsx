@@ -3,6 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { QrCode } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FormField } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,15 @@ import { PORTAL_HOME } from "@/lib/auth/portals";
 
 const COPY: Record<
   PortalRole,
-  { title: string; description: string; idLabel: string; idPlaceholder: string }
+  {
+    title: string;
+    description: string;
+    idLabel: string;
+    idPlaceholder: string;
+    credentialLabel?: string;
+    credentialPlaceholder?: string;
+    credentialHint?: string;
+  }
 > = {
   owner: {
     title: "Owner sign in",
@@ -31,9 +40,12 @@ const COPY: Record<
   },
   member: {
     title: "Member sign in",
-    description: "Enter your gym code, member code and password.",
+    description: "Enter your gym code, member code and registered phone number.",
     idLabel: "Member Code",
     idPlaceholder: "MEM-0001",
+    credentialLabel: "Registered Phone Number",
+    credentialPlaceholder: "e.g. 9876543210",
+    credentialHint: "Enter the 10-digit mobile number registered with your gym profile.",
   },
 };
 
@@ -102,6 +114,10 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
       return;
     }
 
+    if (typeof document !== "undefined") {
+      document.cookie = `bsb_portal=${encodeURIComponent(portal)}; path=/; max-age=86400; samesite=lax`;
+    }
+
     toast({ title: "Welcome back", description: "Signing you in…", variant: "success" });
     router.replace(next && next.startsWith("/") ? next : PORTAL_HOME[portal]);
     router.refresh();
@@ -151,7 +167,7 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
         <div>
           <div className="flex items-center justify-between">
             <label htmlFor="password" className="mb-1.5 block text-sm font-medium text-ink">
-              Password
+              {copy.credentialLabel ?? "Password"}
             </label>
             {portal === "owner" && (
               <Link
@@ -164,13 +180,16 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
           </div>
           <PasswordInput
             id="password"
-            autoComplete="current-password"
-            placeholder="Enter your password"
+            autoComplete={portal === "member" ? "tel" : "current-password"}
+            placeholder={copy.credentialPlaceholder ?? "Enter your password"}
             invalid={Boolean(errors.password)}
             value={values.password}
             onChange={(event) => setField("password", event.target.value)}
             disabled={!configured}
           />
+          {copy.credentialHint && !errors.password && (
+            <p className="mt-1 text-xs text-neutral-500">{copy.credentialHint}</p>
+          )}
           {errors.password && (
             <p role="alert" className="mt-1.5 text-xs font-medium text-red-600">
               {errors.password}
@@ -187,6 +206,26 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
         <Button type="submit" size="lg" fullWidth isLoading={submitting} disabled={disabled}>
           Sign in
         </Button>
+
+        {portal === "trainer" && (
+          <div className="pt-2">
+            <div className="relative my-3 flex items-center justify-center">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-neutral-200" />
+              </div>
+              <div className="relative bg-surface px-2 text-xs font-medium uppercase text-neutral-400">
+                Or Instant Login
+              </div>
+            </div>
+            <Link
+              href="/trainer/qr-scan"
+              className="inline-flex w-full items-center justify-center rounded-lg border border-teal-300/80 bg-teal-50 px-4 py-2.5 text-sm font-semibold text-teal-800 shadow-sm transition-colors hover:bg-teal-100"
+            >
+              <QrCode className="mr-2 size-4 text-teal-700" />
+              Scan QR Code to Sign In
+            </Link>
+          </div>
+        )}
       </form>
     </React.Fragment>
   );

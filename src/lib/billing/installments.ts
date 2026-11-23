@@ -15,10 +15,14 @@ export interface InstallmentPlanItem {
 }
 
 function addMonths(isoDate: string, months: number): string {
-  const date = new Date(`${isoDate}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return isoDate;
-  date.setMonth(date.getMonth() + months);
-  return date.toISOString().slice(0, 10);
+  const parts = isoDate.split("-").map(Number);
+  if (parts.length !== 3 || parts.some((p) => Number.isNaN(p))) return isoDate;
+  const [y, m, d] = parts;
+  const date = new Date(Date.UTC(y, m - 1 + months, d));
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 /** Splits remaining balance into `count` installments. Last row absorbs paise remainder. */

@@ -587,6 +587,7 @@ export const ptSessionAdapter = createTableAdapter<PtSessionRow>({
   searchColumns: ["notes"],
   order: { column: "scheduled_at", ascending: false },
   filterColumns: { status: "status" },
+  dueBucketFilters: { timeframe: "scheduled_at" },
   mapRow: (row): PtSessionRow => ({
     id: asString(row.id),
     organizationId: asString(row.organization_id),

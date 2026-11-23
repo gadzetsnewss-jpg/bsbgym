@@ -55,13 +55,15 @@ export interface ResourceFormProps<TRow> {
 export function ResourceForm<TRow>({ config, mode, id, defaults }: ResourceFormProps<TRow>) {
   const router = useRouter();
   const { toast } = useToast();
-  const { organization, branches, currentBranchId, can } = useOrganization();
+  const { organization, branches, currentBranchId, can, hasRole } = useOrganization();
   const orgId = organization?.id;
+  const isTrainer = hasRole(["trainer"]);
 
   const canSubmit =
-    mode === "create"
+    (mode === "create"
       ? can(config.permissions.create ?? config.permissions.update ?? config.permissions.view)
-      : can(config.permissions.update ?? config.permissions.view);
+      : can(config.permissions.update ?? config.permissions.view)) ||
+    (config.key === "pt_sessions" && isTrainer);
 
   const [values, setValues] = React.useState<ResourceValues>(() => ({
     ...initialValues(config),

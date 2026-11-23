@@ -68,15 +68,20 @@ function ResourceListInner<TRow>({
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
-  const { organization, branches, can } = useOrganization();
+  const { organization, branches, can, hasRole } = useOrganization();
   const orgId = organization?.id;
   const currency = organization?.currency ?? "INR";
+  const isTrainer = hasRole(["trainer"]);
 
   const pageSize = config.pageSize ?? DEFAULT_PAGE_SIZE;
-  const canCreate = Boolean(config.permissions.create && can(config.permissions.create));
+  const canCreate = Boolean(
+    config.permissions.create &&
+      (can(config.permissions.create) || (config.key === "pt_sessions" && isTrainer)),
+  );
   const canUpdate = Boolean(
     (config.permissions.update ?? config.permissions.create) &&
-      can((config.permissions.update ?? config.permissions.create) as string),
+      (can((config.permissions.update ?? config.permissions.create) as string) ||
+        (config.key === "pt_sessions" && isTrainer)),
   );
 
   const [rows, setRows] = React.useState<TRow[]>([]);

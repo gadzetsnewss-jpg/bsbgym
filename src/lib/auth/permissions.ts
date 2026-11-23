@@ -101,12 +101,14 @@ export function isOwnerRole(slug: string | undefined | null): boolean {
   return slug === "owner";
 }
 
-/** True when the member's role slug is one of the listed slugs. */
+/** True when the member's role slug is one of the listed slugs (case-insensitive). */
 export function hasRole(
   roleSlug: string | undefined | null,
   roleSlugs: readonly string[],
 ): boolean {
-  return roleSlugs.includes(roleSlug ?? "");
+  if (!roleSlug) return false;
+  const normalized = roleSlug.toLowerCase().trim();
+  return roleSlugs.some((s) => s.toLowerCase().trim() === normalized);
 }
 
 /** True when the member holds every permission listed. */

@@ -435,6 +435,16 @@ export const ptSessionResource: ResourceConfig<PtSessionRow> = {
   emptyDescription: "Schedule a PT session for a member.",
   filters: [
     {
+      name: "timeframe",
+      label: "Schedule",
+      allLabel: "All sessions",
+      options: [
+        { value: "today", label: "Today" },
+        { value: "upcoming", label: "Upcoming" },
+        { value: "completed", label: "Completed" },
+      ],
+    },
+    {
       name: "status",
       label: "Status",
       allLabel: "All statuses",
@@ -446,6 +456,7 @@ export const ptSessionResource: ResourceConfig<PtSessionRow> = {
     { id: "trainer", header: "Trainer", accessor: (row) => row.trainerName, format: "muted" },
     { id: "when", header: "Scheduled", accessor: (row) => row.scheduledAt, format: "datetime" },
     { id: "duration", header: "Duration", accessor: (row) => `${row.durationMinutes} min`, format: "muted" },
+    { id: "type", header: "Type", accessor: () => "Personal Training", format: "muted" },
     { id: "status", header: "Status", accessor: (row) => row.status, format: "muted" },
   ],
   fields: [

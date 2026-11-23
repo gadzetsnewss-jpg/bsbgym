@@ -37,6 +37,7 @@ import { useOrganization } from "@/components/auth/org-provider";
 import { useToast } from "@/components/ui/toast";
 import {
   fetchGymMember,
+  fetchLinkedTrainerId,
   setGymMemberStatus,
   type GymMemberRow,
 } from "@/lib/org/gym-members";
@@ -76,8 +77,9 @@ export interface MemberDetailProps {
 
 export function MemberDetail({ memberId }: MemberDetailProps) {
   const { toast } = useToast();
-  const { organization, can } = useOrganization();
+  const { organization, profile, can, hasRole } = useOrganization();
   const orgId = organization?.id;
+  const isTrainer = hasRole(["trainer"]);
 
   const canEdit = can("members.update");
   const canDeactivate = can("members.delete");
@@ -106,8 +108,19 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
       setError(result.error.message);
       return;
     }
+    if (isTrainer) {
+      const linked = await fetchLinkedTrainerId(orgId, profile?.id ?? "");
+      if (
+        !linked.data ||
+        (result.data.assignedTrainerId && result.data.assignedTrainerId !== linked.data)
+      ) {
+        setError("You are only permitted to view members actively assigned to your training schedule.");
+        setMember(null);
+        return;
+      }
+    }
     setMember(result.data);
-  }, [orgId, memberId]);
+  }, [orgId, memberId, isTrainer, profile?.id]);
 
   React.useEffect(() => {
     void load();
@@ -180,36 +193,55 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
               <ArrowLeft aria-hidden="true" className="size-4" />
               Back
             </ButtonLink>
-            {canAssignMembership && (
-              <ButtonLink href={`/memberships/active/add?memberId=${member.id}`} variant="outline">
-                Add membership
-              </ButtonLink>
-            )}
-            {canCreateInvoice && (
-              <ButtonLink href={`/billing/new-invoice?memberId=${member.id}`} variant="outline">
-                New invoice
-              </ButtonLink>
-            )}
-            {canAssignTrainer && (
-              <ButtonLink href={`/trainers/assignments/add?memberId=${member.id}`} variant="outline">
-                {member.assignedTrainerName ? "Change trainer" : "Assign trainer"}
-              </ButtonLink>
-            )}
-            {canManageFitness && (
-              <ButtonLink href={`/fitness/workout-plans/add?${fitnessQuery}`} variant="outline">
-                Add workout plan
-              </ButtonLink>
-            )}
-            {canAssignTrainer && (
-              <ButtonLink href={`/trainers/pt-sessions/add?${fitnessQuery}`} variant="outline">
-                Schedule PT
-              </ButtonLink>
-            )}
-            {canEdit && (
-              <ButtonLink href={`/members/${member.id}/edit`}>
-                <Pencil aria-hidden="true" className="size-4" />
-                Edit
-              </ButtonLink>
+            {isTrainer ? (
+              <>
+                <ButtonLink href={`/trainers/pt-sessions/add?memberId=${member.id}`} variant="primary">
+                  Schedule PT
+                </ButtonLink>
+                <ButtonLink href={`/fitness/workout-plans/add?${fitnessQuery}`} variant="outline">
+                  Add workout plan
+                </ButtonLink>
+                <ButtonLink href={`/fitness/diet-plans/add?${fitnessQuery}`} variant="outline">
+                  Add diet plan
+                </ButtonLink>
+                <ButtonLink href={`/fitness/progress?memberId=${member.id}`} variant="outline">
+                  Record progress
+                </ButtonLink>
+              </>
+            ) : (
+              <>
+                {canAssignMembership && (
+                  <ButtonLink href={`/memberships/active/add?memberId=${member.id}`} variant="outline">
+                    Add membership
+                  </ButtonLink>
+                )}
+                {canCreateInvoice && (
+                  <ButtonLink href={`/billing/new-invoice?memberId=${member.id}`} variant="outline">
+                    New invoice
+                  </ButtonLink>
+                )}
+                {canAssignTrainer && (
+                  <ButtonLink href={`/trainers/assignments/add?memberId=${member.id}`} variant="outline">
+                    {member.assignedTrainerName ? "Change trainer" : "Assign trainer"}
+                  </ButtonLink>
+                )}
+                {canManageFitness && (
+                  <ButtonLink href={`/fitness/workout-plans/add?${fitnessQuery}`} variant="outline">
+                    Add workout plan
+                  </ButtonLink>
+                )}
+                {canAssignTrainer && (
+                  <ButtonLink href={`/trainers/pt-sessions/add?${fitnessQuery}`} variant="outline">
+                    Schedule PT
+                  </ButtonLink>
+                )}
+                {canEdit && (
+                  <ButtonLink href={`/members/${member.id}/edit`}>
+                    <Pencil aria-hidden="true" className="size-4" />
+                    Edit
+                  </ButtonLink>
+                )}
+              </>
             )}
           </>
         }
@@ -240,42 +272,54 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          {canEdit && member.status === "active" && (
-            <Button variant="outline" onClick={() => setPending("suspend")}>
-              <UserMinus aria-hidden="true" className="size-4" />
-              Suspend
-            </Button>
-          )}
-          {canDeactivate && member.status !== "inactive" && (
-            <Button variant="outline" onClick={() => setPending("deactivate")}>
-              <UserMinus aria-hidden="true" className="size-4" />
-              Deactivate
-            </Button>
-          )}
-          {(canEdit || canDeactivate) && member.status !== "active" && (
-            <Button onClick={() => setPending("activate")}>
-              <UserRoundCheck aria-hidden="true" className="size-4" />
-              Activate
-            </Button>
-          )}
-        </div>
+        {!isTrainer && (
+          <div className="flex flex-wrap items-center gap-2">
+            {canEdit && member.status === "active" && (
+              <Button variant="outline" onClick={() => setPending("suspend")}>
+                <UserMinus aria-hidden="true" className="size-4" />
+                Suspend
+              </Button>
+            )}
+            {canDeactivate && member.status !== "inactive" && (
+              <Button variant="outline" onClick={() => setPending("deactivate")}>
+                <UserMinus aria-hidden="true" className="size-4" />
+                Deactivate
+              </Button>
+            )}
+            {(canEdit || canDeactivate) && member.status !== "active" && (
+              <Button onClick={() => setPending("activate")}>
+                <UserRoundCheck aria-hidden="true" className="size-4" />
+                Activate
+              </Button>
+            )}
+          </div>
+        )}
       </Card>
 
       <Tabs
         aria-label="Member sections"
         value={tab}
         onValueChange={setTab}
-        items={[
-          { value: "profile", label: "Profile", icon: Users },
-          { value: "membership", label: "Membership", icon: Dumbbell },
-          { value: "billing", label: "Billing", icon: CreditCard },
-          { value: "attendance", label: "Attendance", icon: CalendarDays },
-          { value: "classes", label: "Classes", icon: BookOpen },
-          { value: "trainer", label: "Trainer", icon: UserRoundCheck },
-          { value: "fitness", label: "Fitness", icon: Dumbbell },
-          { value: "activity", label: "Activity", icon: Activity },
-        ]}
+        items={
+          isTrainer
+            ? [
+                { value: "profile", label: "Profile", icon: Users },
+                { value: "membership", label: "Membership", icon: Dumbbell },
+                { value: "trainer", label: "Trainer", icon: UserRoundCheck },
+                { value: "fitness", label: "Fitness", icon: Dumbbell },
+                { value: "attendance", label: "Attendance", icon: CalendarDays },
+              ]
+            : [
+                { value: "profile", label: "Profile", icon: Users },
+                { value: "membership", label: "Membership", icon: Dumbbell },
+                { value: "billing", label: "Billing", icon: CreditCard },
+                { value: "attendance", label: "Attendance", icon: CalendarDays },
+                { value: "classes", label: "Classes", icon: BookOpen },
+                { value: "trainer", label: "Trainer", icon: UserRoundCheck },
+                { value: "fitness", label: "Fitness", icon: Dumbbell },
+                { value: "activity", label: "Activity", icon: Activity },
+              ]
+        }
       >
         {tab === "profile" && (
           <div className="grid gap-6 lg:grid-cols-3">
@@ -345,15 +389,17 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
               </div>
             </Card>
 
-            <div className="lg:col-span-3">
-              <MemberLoginLinkPanel
-                memberId={member.id}
-                memberName={member.fullName}
-                memberCode={member.code}
-                linkedUserId={member.userId}
-                onChanged={() => void load()}
-              />
-            </div>
+            {!isTrainer && (
+              <div className="lg:col-span-3">
+                <MemberLoginLinkPanel
+                  memberId={member.id}
+                  memberName={member.fullName}
+                  memberCode={member.code}
+                  linkedUserId={member.userId}
+                  onChanged={() => void load()}
+                />
+              </div>
+            )}
           </div>
         )}
 

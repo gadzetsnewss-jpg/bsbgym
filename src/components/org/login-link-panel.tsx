@@ -25,6 +25,7 @@ import {
 } from "@/lib/org/gym-members";
 import { displayName } from "@/lib/format";
 import { ownerSetLoginPasswordSchema } from "@/lib/validation/auth-schemas";
+import { TrainerQrPanel } from "@/components/trainers/trainer-qr-panel";
 
 type PasswordValues = { password: string; confirmPassword: string };
 
@@ -46,14 +47,24 @@ export function TrainerLoginLinkPanel({
   onChanged?: () => void;
 }) {
   return (
-    <LoginLinkPanel
-      kind="trainer"
-      recordId={trainerId}
-      displayName={trainerName}
-      loginId={trainerCode}
-      linkedUserId={linkedUserId}
-      onChanged={onChanged}
-    />
+    <div className="space-y-6">
+      <LoginLinkPanel
+        kind="trainer"
+        recordId={trainerId}
+        displayName={trainerName}
+        loginId={trainerCode}
+        linkedUserId={linkedUserId}
+        onChanged={onChanged}
+      />
+      {linkedUserId && (
+        <TrainerQrPanel
+          trainerId={trainerId}
+          trainerName={trainerName}
+          trainerCode={trainerCode}
+          linkedUserId={linkedUserId}
+        />
+      )}
+    </div>
   );
 }
 

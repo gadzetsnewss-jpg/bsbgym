@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { ToastProvider } from "@/components/ui/toast";
 import "@/app/globals.css";
@@ -9,6 +9,12 @@ const inter = Inter({
   variable: "--font-inter",
 });
 
+export const viewport: Viewport = {
+  themeColor: "#063C3B",
+  width: "device-width",
+  initialScale: 1,
+};
+
 export const metadata: Metadata = {
   title: {
     default: "BSB FitForge",
@@ -17,6 +23,11 @@ export const metadata: Metadata = {
   description:
     "BSB FitForge - Professional cloud-based gym management ERP/SaaS for fitness businesses.",
   applicationName: "BSB FitForge",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "FitForge Trainer",
+  },
 };
 
 export default function RootLayout({

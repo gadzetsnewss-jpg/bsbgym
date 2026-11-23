@@ -1,4 +1,4 @@
-import type { NavSection } from "@/types/navigation";
+import type { NavItem, NavSection } from "@/types/navigation";
 import {
   Activity,
   BadgeCheck,
@@ -110,6 +110,26 @@ export const NAV_SECTIONS: NavSection[] = [
         icon: UserX,
         description: "Members whose memberships are paused or ended.",
         permission: "memberships.view",
+      },
+    ],
+  },
+  {
+    id: "master",
+    title: "Master",
+    items: [
+      {
+        title: "Membership Plans",
+        href: "/memberships/plans",
+        icon: Layers,
+        description: "Membership plans, pricing and duration master.",
+        permission: "memberships.view",
+      },
+      {
+        title: "GST Master",
+        href: "/billing/gst-master",
+        icon: Percent,
+        description: "Goods and services tax configuration and tax slabs.",
+        permission: "gst.view",
       },
     ],
   },
@@ -591,10 +611,71 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
+/** Approved exact 8 items for the Trainer Portal navigation in strict order. */
+export const TRAINER_NAV_ITEMS: NavItem[] = [
+  {
+    title: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    description: "Overview of your training schedule and assigned members.",
+  },
+  {
+    title: "My Members",
+    href: "/members",
+    icon: Users,
+    description: "Members actively assigned to you.",
+  },
+  {
+    title: "PT Sessions",
+    href: "/trainers/pt-sessions",
+    icon: ClipboardList,
+    description: "Personal training sessions with your members.",
+  },
+  {
+    title: "Workout Plans",
+    href: "/fitness/workout-plans",
+    icon: HeartPulse,
+    description: "Prescribed workout programs and routines.",
+  },
+  {
+    title: "Diet Plans",
+    href: "/fitness/diet-plans",
+    icon: Salad,
+    description: "Nutrition and meal plans.",
+  },
+  {
+    title: "Progress & Measurements",
+    href: "/fitness/progress",
+    icon: TrendingUp,
+    description: "Member transformation and measurement logs.",
+  },
+  {
+    title: "Notifications",
+    href: "/notifications",
+    icon: Bell,
+    description: "Session alerts and gym notifications.",
+  },
+  {
+    title: "My Profile",
+    href: "/settings/profile",
+    icon: UserRound,
+    description: "Your personal trainer account details.",
+  },
+];
+
+export const TRAINER_NAV_SECTION: NavSection = {
+  id: "trainer_portal",
+  title: "Trainer Portal",
+  items: TRAINER_NAV_ITEMS,
+};
+
 /** Flat index of every nav item for search / breadcrumbs / page titles. */
-export const FLAT_NAV_ITEMS: FlatNavItem[] = NAV_SECTIONS.flatMap((section) =>
-  section.items.map((item) => ({ ...item, sectionTitle: section.title })),
-);
+export const FLAT_NAV_ITEMS: FlatNavItem[] = [
+  ...NAV_SECTIONS.flatMap((section) =>
+    section.items.map((item) => ({ ...item, sectionTitle: section.title })),
+  ),
+  ...TRAINER_NAV_ITEMS.map((item) => ({ ...item, sectionTitle: "Trainer Portal" })),
+];
 
 /** Lookup by href (exact match). */
 export function findNavItem(href: string): FlatNavItem | undefined {

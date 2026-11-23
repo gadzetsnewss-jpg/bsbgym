@@ -345,14 +345,21 @@ export interface MemberMeasurementRow {
   id: string;
   measuredAt: string;
   weightKg: number | null;
+  heightCm?: number | null;
   bodyFatPercent: number | null;
+  chestCm?: number | null;
   waistCm: number | null;
+  hipsCm?: number | null;
+  armsCm?: number | null;
+  thighsCm?: number | null;
+  notes?: string | null;
 }
 
 export interface MemberProgressRow {
   id: string;
   entryDate: string;
   weightKg: number | null;
+  photoUrl?: string | null;
   notes: string | null;
 }
 
@@ -381,17 +388,33 @@ export interface TrainerAssignedMemberRow {
   id: string;
   memberId: string;
   memberName: string;
+  memberCode?: string | null;
+  memberStatus?: string | null;
+  photoUrl?: string | null;
   assignedAt: string;
   status: string;
 }
 
 export interface TrainerSessionRow {
   id: string;
+  memberId?: string;
   memberName?: string;
+  memberCode?: string;
   className?: string;
   scheduledAt: string;
+  durationMinutes?: number;
   status: string;
   href: string;
+}
+
+export interface TrainerRecentMeasurementRow {
+  id: string;
+  memberId: string;
+  memberName: string;
+  measuredAt: string;
+  weightKg: number | null;
+  bodyFatPercent: number | null;
+  waistCm: number | null;
 }
 
 export interface TrainerOption {
@@ -506,20 +529,26 @@ export async function fetchTrainerAssignedMembers(
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("trainer_assignments" as AnyTable)
-    .select("id, member_id, assigned_at, status, gym_members(id, full_name, first_name, last_name, code)")
+    .select("id, member_id, assigned_at, status, gym_members(id, full_name, first_name, last_name, code, status, photo_url)")
     .eq("organization_id", organizationId)
     .eq("trainer_id" as "id", trainerId)
     .order("assigned_at" as "created_at", { ascending: false })
     .limit(20);
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return {
-    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
-      id: String(row.id),
-      memberId: String(row.member_id ?? ""),
-      memberName: embedLabel(row.gym_members),
-      assignedAt: String(row.assigned_at ?? ""),
-      status: String(row.status || "active"),
-    })),
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
+      const member = embedRecord(row.gym_members);
+      return {
+        id: String(row.id),
+        memberId: String(row.member_id ?? ""),
+        memberName: embedLabel(row.gym_members),
+        memberCode: member?.code ? String(member.code) : null,
+        memberStatus: member?.status ? String(member.status) : null,
+        photoUrl: member?.photo_url ? String(member.photo_url) : null,
+        assignedAt: String(row.assigned_at ?? ""),
+        status: String(row.status || "active"),
+      };
+    }),
     error: null,
   };
 }
@@ -532,19 +561,59 @@ export async function fetchTrainerPtSessions(
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("pt_sessions" as AnyTable)
-    .select("id, scheduled_at, status, gym_members(full_name, first_name, last_name, code)")
+    .select("id, scheduled_at, duration_minutes, status, gym_members(id, full_name, first_name, last_name, code)")
     .eq("organization_id", organizationId)
     .eq("trainer_id" as "id", trainerId)
     .order("scheduled_at" as "created_at", { ascending: false })
-    .limit(8);
+    .limit(30);
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => {
+      const member = embedRecord(row.gym_members);
+      return {
+        id: String(row.id),
+        memberId: member?.id ? String(member.id) : undefined,
+        memberName: embedLabel(row.gym_members),
+        memberCode: member?.code ? String(member.code) : undefined,
+        scheduledAt: String(row.scheduled_at ?? ""),
+        durationMinutes: row.duration_minutes == null ? 60 : Number(row.duration_minutes),
+        status: String(row.status || "scheduled"),
+        href: `/trainers/pt-sessions/${String(row.id)}`,
+      };
+    }),
+    error: null,
+  };
+}
+
+export async function fetchTrainerRecentMeasurements(
+  organizationId: string,
+  memberIds: string[],
+  limit = 5,
+): Promise<OrgResult<TrainerRecentMeasurementRow[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  if (memberIds.length === 0) return { data: [], error: null };
+
+  const { data, error } = await supabase
+    .from("body_measurements" as AnyTable)
+    .select(
+      "id, member_id, measured_at, weight_kg, body_fat_percent, waist_cm, gym_members(full_name, first_name, last_name, code)",
+    )
+    .eq("organization_id", organizationId)
+    .in("member_id" as "id", memberIds)
+    .order("measured_at" as "created_at", { ascending: false })
+    .limit(limit);
+
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return {
     data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
       id: String(row.id),
+      memberId: String(row.member_id ?? ""),
       memberName: embedLabel(row.gym_members),
-      scheduledAt: String(row.scheduled_at ?? ""),
-      status: String(row.status || "scheduled"),
-      href: `/trainers/pt-sessions/${String(row.id)}`,
+      measuredAt: String(row.measured_at ?? ""),
+      weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
+      bodyFatPercent: row.body_fat_percent == null ? null : Number(row.body_fat_percent),
+      waistCm: row.waist_cm == null ? null : Number(row.waist_cm),
     })),
     error: null,
   };
@@ -645,19 +714,27 @@ export async function fetchMemberMeasurements(
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("body_measurements" as AnyTable)
-    .select("id, measured_at, weight_kg, body_fat_percent, waist_cm")
+    .select(
+      "id, measured_at, weight_kg, height_cm, body_fat_percent, chest_cm, waist_cm, hips_cm, arms_cm, thighs_cm, notes",
+    )
     .eq("organization_id", organizationId)
     .eq("member_id" as "id", memberId)
     .order("measured_at" as "created_at", { ascending: false })
-    .limit(8);
+    .limit(50);
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return {
     data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
       id: String(row.id),
       measuredAt: String(row.measured_at ?? ""),
       weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
+      heightCm: row.height_cm == null ? null : Number(row.height_cm),
       bodyFatPercent: row.body_fat_percent == null ? null : Number(row.body_fat_percent),
+      chestCm: row.chest_cm == null ? null : Number(row.chest_cm),
       waistCm: row.waist_cm == null ? null : Number(row.waist_cm),
+      hipsCm: row.hips_cm == null ? null : Number(row.hips_cm),
+      armsCm: row.arms_cm == null ? null : Number(row.arms_cm),
+      thighsCm: row.thighs_cm == null ? null : Number(row.thighs_cm),
+      notes: row.notes ? String(row.notes) : null,
     })),
     error: null,
   };
@@ -671,17 +748,18 @@ export async function fetchMemberProgress(
   if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
   const { data, error } = await supabase
     .from("progress_entries" as AnyTable)
-    .select("id, entry_date, weight_kg, notes")
+    .select("id, entry_date, weight_kg, photo_url, notes")
     .eq("organization_id", organizationId)
     .eq("member_id" as "id", memberId)
     .order("entry_date" as "created_at", { ascending: false })
-    .limit(8);
+    .limit(50);
   if (error) return { data: null, error: { message: friendlyMessage(error) } };
   return {
     data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
       id: String(row.id),
       entryDate: String(row.entry_date ?? ""),
       weightKg: row.weight_kg == null ? null : Number(row.weight_kg),
+      photoUrl: row.photo_url ? String(row.photo_url) : null,
       notes: row.notes ? String(row.notes) : null,
     })),
     error: null,
@@ -872,6 +950,40 @@ export async function fetchLinkedTrainerId(
   return { data: data?.id ? String(data.id) : null, error: null };
 }
 
+export interface LinkedTrainerProfile {
+  id: string;
+  code: string | null;
+  branchName: string | null;
+  specialization: string | null;
+}
+
+export async function fetchLinkedTrainerProfile(
+  organizationId: string,
+  userId: string,
+): Promise<OrgResult<LinkedTrainerProfile | null>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+  const { data, error } = await supabase
+    .from("trainers" as AnyTable)
+    .select("id, code, specialization, branches(name)")
+    .eq("organization_id", organizationId)
+    .eq("user_id" as "id", userId)
+    .maybeSingle();
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  if (!data) return { data: null, error: null };
+  const row = data as unknown as Record<string, unknown>;
+  const branch = row.branches as Record<string, unknown> | null;
+  return {
+    data: {
+      id: String(row.id),
+      code: row.code ? String(row.code) : null,
+      branchName: branch?.name ? String(branch.name) : null,
+      specialization: row.specialization ? String(row.specialization) : null,
+    },
+    error: null,
+  };
+}
+
 export async function fetchLinkedGymMemberId(
   organizationId: string,
   userId: string,
@@ -908,6 +1020,145 @@ export async function fetchTrainerOptions(
         String(row.full_name ?? "").trim() ||
         [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
         String(row.code ?? "Trainer"),
+    })),
+    error: null,
+  };
+}
+
+export interface MemberActiveMembership {
+  id: string;
+  planName: string;
+  planCode: string | null;
+  status: string;
+  startDate: string;
+  endDate: string;
+  price: number;
+  discount: number;
+  finalAmount: number;
+  freezeDaysUsed: number;
+  daysRemaining: number;
+}
+
+export interface MemberAttendanceHistoryItem {
+  id: string;
+  checkInAt: string;
+  checkOutAt: string | null;
+  method: string;
+}
+
+export interface MemberInvoiceSummary {
+  id: string;
+  invoiceNumber: string;
+  invoiceDate: string;
+  totalAmount: number;
+  paidAmount: number;
+  balanceAmount: number;
+  status: string;
+}
+
+export async function fetchMemberActiveMembership(
+  organizationId: string,
+  memberId: string,
+): Promise<OrgResult<MemberActiveMembership | null>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase
+    .from("memberships" as AnyTable)
+    .select(
+      "id, status, start_date, end_date, price, discount, final_amount, freeze_days_used, membership_plans(name, code)",
+    )
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("end_date" as "created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  if (!data) return { data: null, error: null };
+
+  const raw = (data as unknown) as Record<string, unknown>;
+  const plan = (Array.isArray(raw.membership_plans) ? raw.membership_plans[0] : raw.membership_plans) as
+    | Record<string, unknown>
+    | null;
+  const endDate = String(raw.end_date || "");
+  const today = new Date().toISOString().slice(0, 10);
+  const diffDays = Math.ceil(
+    (new Date(endDate).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  return {
+    data: {
+      id: String(raw.id),
+      planName: String(plan?.name || "Membership Plan"),
+      planCode: plan?.code ? String(plan.code) : null,
+      status: String(raw.status || "active"),
+      startDate: String(raw.start_date || ""),
+      endDate,
+      price: Number(raw.price || 0),
+      discount: Number(raw.discount || 0),
+      finalAmount: Number(raw.final_amount || 0),
+      freezeDaysUsed: Number(raw.freeze_days_used || 0),
+      daysRemaining: diffDays,
+    },
+    error: null,
+  };
+}
+
+export async function fetchMemberAttendanceHistory(
+  organizationId: string,
+  memberId: string,
+  limit = 5,
+): Promise<OrgResult<MemberAttendanceHistoryItem[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase
+    .from("attendance_records" as AnyTable)
+    .select("id, check_in_at, check_out_at, method")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("check_in_at" as "created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      checkInAt: String(row.check_in_at || ""),
+      checkOutAt: row.check_out_at ? String(row.check_out_at) : null,
+      method: String(row.method || "manual"),
+    })),
+    error: null,
+  };
+}
+
+export async function fetchMemberRecentInvoices(
+  organizationId: string,
+  memberId: string,
+  limit = 5,
+): Promise<OrgResult<MemberInvoiceSummary[]>> {
+  const supabase = clientOrNull();
+  if (!supabase) return { data: null, error: { message: "Supabase is not configured." } };
+
+  const { data, error } = await supabase
+    .from("invoices" as AnyTable)
+    .select("id, invoice_number, invoice_date, total_amount, paid_amount, balance_amount, status")
+    .eq("organization_id", organizationId)
+    .eq("member_id" as "id", memberId)
+    .order("invoice_date" as "created_at", { ascending: false })
+    .limit(limit);
+
+  if (error) return { data: null, error: { message: friendlyMessage(error) } };
+  return {
+    data: ((data ?? []) as unknown as Record<string, unknown>[]).map((row) => ({
+      id: String(row.id),
+      invoiceNumber: String(row.invoice_number || ""),
+      invoiceDate: String(row.invoice_date || ""),
+      totalAmount: Number(row.total_amount || 0),
+      paidAmount: Number(row.paid_amount || 0),
+      balanceAmount: Number(row.balance_amount || 0),
+      status: String(row.status || "unpaid"),
     })),
     error: null,
   };

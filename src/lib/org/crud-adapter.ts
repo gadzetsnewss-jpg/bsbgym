@@ -156,11 +156,11 @@ export function createTableAdapter<TRow>(
         if (value === "today") {
           query = query.gte(column, start.toISOString()).lt(column, end.toISOString());
         } else if (value === "upcoming") {
-          query = query.gte(column, end.toISOString()).eq("status" as "id", "pending");
+          query = query.gte(column, end.toISOString());
         } else if (value === "overdue") {
           query = query.lt(column, start.toISOString()).eq("status" as "id", "pending");
         } else if (value === "completed") {
-          query = query.eq("status" as "id", "done");
+          query = query.in("status" as "id", ["done", "completed"]);
         }
       }
 
