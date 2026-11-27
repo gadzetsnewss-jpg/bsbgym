@@ -279,16 +279,9 @@ export function MembersList({
         if (canUpdate) {
           items.push({ label: "Edit", href: `/members/${row.id}/edit`, separator: true });
         }
-        if (canAssignMembership) {
+        if (canCreateInvoice || canAssignMembership) {
           items.push({
-            label: "Add membership",
-            icon: BadgeCheck,
-            href: `/memberships/active/add?memberId=${row.id}`,
-          });
-        }
-        if (canCreateInvoice) {
-          items.push({
-            label: "New invoice",
+            label: "New invoice / Membership",
             icon: CreditCard,
             href: `/billing/new-invoice?memberId=${row.id}`,
           });

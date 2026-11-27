@@ -61,24 +61,14 @@ function LeadLifecycleActions({ lead }: { lead: LeadRow }) {
               <Users aria-hidden="true" className="size-4" />
               View member
             </ButtonLink>
-            {canAssignMembership && (
-              <ButtonLink
-                href={`/memberships/active/add?memberId=${lead.convertedMemberId}${branchQuery}`}
-                variant="outline"
-                size="sm"
-              >
-                <BadgeCheck aria-hidden="true" className="size-4" />
-                Add membership
-              </ButtonLink>
-            )}
-            {canCreateInvoice && (
+            {(canCreateInvoice || canAssignMembership) && (
               <ButtonLink
                 href={`/billing/new-invoice?memberId=${lead.convertedMemberId}${branchQuery}`}
                 variant="outline"
                 size="sm"
               >
                 <CreditCard aria-hidden="true" className="size-4" />
-                Create invoice
+                Create invoice & membership
               </ButtonLink>
             )}
             {canAssignTrainer && (

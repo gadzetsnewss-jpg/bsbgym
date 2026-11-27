@@ -61,7 +61,8 @@ import {
 } from "@/lib/billing/gst";
 import { collectPaymentRows, paymentRowsTotal } from "@/lib/billing/payments";
 import { loadMemberOptions } from "@/lib/operations/adapters";
-import { createMembership, extendMembership } from "@/lib/org/memberships";
+import { createMembership, extendMembership, linkInvoiceMembership } from "@/lib/org/memberships";
+import { getSupabaseBrowserClient } from "@/lib/supabase/client";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import {
@@ -369,7 +370,6 @@ export function NewInvoiceForm() {
   const [extraDays, setExtraDays] = React.useState("0");
   const roundOffTouched = React.useRef(false);
   const dueDateTouched = React.useRef(false);
-  const [activateMembership, setActivateMembership] = React.useState(false);
   const [member, setMember] = React.useState<Awaited<ReturnType<typeof fetchMemberForInvoice>>["data"]>(null);
   const [saving, setSaving] = React.useState<"draft" | "finalize" | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -389,7 +389,6 @@ export function NewInvoiceForm() {
 
   const paymentKeyRef = React.useRef(1);
   const paymentsDirty = React.useRef(false);
-  const activateTouched = React.useRef(false);
 
   React.useEffect(() => {
     if (!orgId) return;
@@ -597,11 +596,6 @@ export function NewInvoiceForm() {
     : "";
   const meaningfulExtra = months > 0 || days > 0;
 
-  React.useEffect(() => {
-    if (activateTouched.current) return;
-    setActivateMembership(Boolean(validityPlan && !activeMembership && canCreateMembership));
-  }, [validityPlan, activeMembership, canCreateMembership]);
-
   const applyPlanToItem = (item: DraftItem, planId: string): DraftItem => {
     const plan = plans.find((option) => option.id === planId);
     if (!plan) return { ...item, planId };
@@ -708,20 +702,18 @@ export function NewInvoiceForm() {
     if (computed.every((line) => line.lineTotal <= 0) && !nextErrors["item.0.unitPrice"]) {
       nextErrors.items = "Add at least one invoice item with a valid amount.";
     }
-    if (activateMembership && validityPlan && !activeMembership && !membershipStart) {
+    if (validityPlan && !activeMembership && !membershipStart) {
       nextErrors.membershipStart = "Select a membership start date.";
     }
     if (mode === "finalize") {
-      if (!can("payments.create")) {
-        nextErrors.payments = "You do not have permission to record payments.";
-      } else if (!paymentReceived) {
-        nextErrors.payments = "Tick Payment received to finalize, or use Save draft.";
-      } else if (paymentTotal <= 0) {
-        nextErrors.payments = "Enter a payment before finalizing. Use Save draft to keep it unpaid.";
-      } else if (paymentTotal > totals.grandTotal + 0.001) {
-        nextErrors.payments = "Payments cannot exceed the invoice total.";
-      }
       if (paymentReceived) {
+        if (!can("payments.create")) {
+          nextErrors.payments = "You do not have permission to record payments.";
+        } else if (paymentTotal <= 0) {
+          nextErrors.payments = "Enter a payment amount greater than zero, or uncheck Payment received to issue as pending payment.";
+        } else if (paymentTotal > totals.grandTotal + 0.001) {
+          nextErrors.payments = "Payments cannot exceed the invoice total.";
+        }
         payments.forEach((payment, index) => {
           const amount = Number(payment.amount);
           if (!Number.isFinite(amount) || amount <= 0) {
@@ -746,11 +738,9 @@ export function NewInvoiceForm() {
     setPayments([{ key: "p-1", method: "upi", amount: "", reference: "" }]);
     paymentKeyRef.current = 1;
     paymentsDirty.current = false;
-    activateTouched.current = false;
     setPaymentReceived(true);
     setExtraMonths("0");
     setExtraDays("0");
-    setActivateMembership(false);
     setFieldErrors({});
     setSuccess(null);
     router.replace("/billing/new-invoice");
@@ -829,8 +819,12 @@ export function NewInvoiceForm() {
     }
 
     let membershipWarning: string | null = null;
-    if (validityPlan && activateMembership) {
-      if (activeMembership && canExtendMembership) {
+    if (validityPlan) {
+      const paymentTotal = paymentRowsTotal(paymentRows);
+      const itemPrice = Number(membershipItem?.unitPrice) || validityPlan.price;
+      const itemDiscount = Number(membershipItem?.discount) || 0;
+
+      if (activeMembership && canExtendMembership && (meaningfulExtra || activeMembership.planId === validityPlan.id)) {
         const extendBy = daysBetweenIso(activeMembership.endDate, validUntil);
         if (extendBy > 0) {
           const extended = await extendMembership(
@@ -842,7 +836,44 @@ export function NewInvoiceForm() {
           );
           if (extended.error) membershipWarning = extended.error.message;
         }
-      } else if (!activeMembership && canCreateMembership) {
+        await linkInvoiceMembership(invoiceId, activeMembership.id);
+      } else if (activeMembership) {
+        const renewStart =
+          membershipStart && membershipStart > activeMembership.endDate
+            ? membershipStart
+            : addDaysIso(activeMembership.endDate, 1);
+        const renewEnd = addDaysIso(
+          renewStart,
+          validityPlan.durationDays + Number(extraDays) + Number(extraMonths) * 30,
+        );
+        const created = await createMembership({
+          organizationId: orgId,
+          branchId,
+          memberId,
+          planId: validityPlan.id,
+          startDate: renewStart,
+          endDate: renewEnd,
+          price: itemPrice,
+          discount: itemDiscount,
+          notes: meaningfulExtra
+            ? `Created from invoice. Extra validity: +${months} month(s), +${days} day(s)`
+            : "Created from invoice",
+        });
+        if (created.error) {
+          membershipWarning = created.error.message;
+        } else if (created.data) {
+          if (paymentTotal === 0) {
+            const supabase = getSupabaseBrowserClient();
+            if (supabase) {
+              await supabase
+                .from("memberships" as any)
+                .update({ status: "pending" })
+                .eq("id", created.data.id);
+            }
+          }
+          await linkInvoiceMembership(invoiceId, created.data.id);
+        }
+      } else if (canCreateMembership) {
         const created = await createMembership({
           organizationId: orgId,
           branchId,
@@ -850,13 +881,26 @@ export function NewInvoiceForm() {
           planId: validityPlan.id,
           startDate: membershipStart,
           endDate: validUntil,
-          price: validityPlan.price,
-          discount: 0,
+          price: itemPrice,
+          discount: itemDiscount,
           notes: meaningfulExtra
             ? `Created from invoice. Extra validity: +${months} month(s), +${days} day(s)`
             : "Created from invoice",
         });
-        if (created.error) membershipWarning = created.error.message;
+        if (created.error) {
+          membershipWarning = created.error.message;
+        } else if (created.data) {
+          if (paymentTotal === 0) {
+            const supabase = getSupabaseBrowserClient();
+            if (supabase) {
+              await supabase
+                .from("memberships" as any)
+                .update({ status: "pending" })
+                .eq("id", created.data.id);
+            }
+          }
+          await linkInvoiceMembership(invoiceId, created.data.id);
+        }
       }
     }
 
@@ -1155,9 +1199,6 @@ export function NewInvoiceForm() {
                 <ButtonLink href={`/memberships/active/${activeMembership.id}`} variant="outline" size="sm">
                   View membership
                 </ButtonLink>
-                <ButtonLink href={`/memberships/active/add?memberId=${memberId}`} variant="outline" size="sm">
-                  Create new membership
-                </ButtonLink>
               </div>
             </div>
             <dl className="mt-4 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3 lg:grid-cols-4">
@@ -1186,18 +1227,8 @@ export function NewInvoiceForm() {
               <div className="min-w-0">
                 <p className="text-sm font-semibold text-ink">No active membership</p>
                 <p className="mt-0.5 text-sm text-neutral-500">
-                  You can select a Membership Plan below to create a new membership charge.
+                  Select a Membership Plan in Step 4 below to assign a paid membership to this member.
                 </p>
-                {memberId && (
-                  <ButtonLink
-                    href={`/memberships/active/add?memberId=${memberId}`}
-                    variant="outline"
-                    size="sm"
-                    className="mt-3"
-                  >
-                    Create new membership
-                  </ButtonLink>
-                )}
               </div>
             </div>
           </div>
@@ -1253,27 +1284,19 @@ export function NewInvoiceForm() {
                 value={<span className="text-primary-800">{formatDate(validUntil)}</span>}
               />
             </div>
-            <label className="mt-3 flex items-center gap-2 text-sm text-ink">
-              <input
-                type="checkbox"
-                checked={activateMembership}
-                onChange={(event) => {
-                  activateTouched.current = true;
-                  setActivateMembership(event.target.checked);
-                }}
-                disabled={activeMembership ? !canExtendMembership : !canCreateMembership}
-                className="size-4 rounded border-border text-primary-600 focus-visible:ring-primary-500"
-              />
-              <span>
-                {activeMembership
-                  ? "Extend the current membership by the extra validity"
-                  : "Create this membership when the invoice is saved"}
-              </span>
-            </label>
-            <p className="mt-1 text-xs text-neutral-500">
-              Selecting a plan only fills this invoice line. The membership is created or extended only when the box
-              above is ticked.
-            </p>
+            <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-primary-200 bg-primary-50/70 p-3 text-sm text-primary-950">
+              <BadgeCheck className="mt-0.5 size-5 shrink-0 text-primary-600" />
+              <div className="space-y-0.5">
+                <p className="font-medium">
+                  {activeMembership
+                    ? "Extends or renews member's active membership upon invoice finalization"
+                    : "Creates and links this membership upon invoice finalization"}
+                </p>
+                <p className="text-xs text-primary-800">
+                  New Invoice is the unified workflow for memberships. Price, discount, payments, and remaining balance are synchronized automatically in Active Memberships.
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </StepCard>

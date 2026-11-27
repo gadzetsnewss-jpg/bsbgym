@@ -210,14 +210,9 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
               </>
             ) : (
               <>
-                {canAssignMembership && (
-                  <ButtonLink href={`/memberships/active/add?memberId=${member.id}`} variant="outline">
-                    Add membership
-                  </ButtonLink>
-                )}
-                {canCreateInvoice && (
+                {(canCreateInvoice || canAssignMembership) && (
                   <ButtonLink href={`/billing/new-invoice?memberId=${member.id}`} variant="outline">
-                    New invoice
+                    New invoice / Membership
                   </ButtonLink>
                 )}
                 {canAssignTrainer && (

@@ -1050,6 +1050,13 @@ export interface Database {
         member_id: string;
         trainer_id: string | null;
         name: string;
+        goal: string | null;
+        status: string;
+        daily_calorie_target: number | null;
+        protein_target_g: number | null;
+        carb_target_g: number | null;
+        fat_target_g: number | null;
+        water_intake_liters: number | null;
         start_date: string | null;
         end_date: string | null;
         notes: string | null;
@@ -1066,6 +1073,14 @@ export interface Database {
         description: string | null;
         calories: number | null;
         sort_order: number;
+        meal_time: string | null;
+        food_name: string | null;
+        quantity: number | null;
+        unit: string | null;
+        protein_g: number | null;
+        carbs_g: number | null;
+        fat_g: number | null;
+        instructions: string | null;
         created_at: string;
       }>;
       body_measurements: ModuleTable<{

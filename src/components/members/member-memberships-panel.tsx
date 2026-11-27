@@ -55,7 +55,7 @@ export function MemberMembershipsPanel({ memberId }: { memberId: string }) {
         description="Assign a plan to this member. Payment is collected in Billing."
         action={
           canAssign
-            ? { label: "Assign membership", href: `/memberships/active/add?memberId=${memberId}` }
+            ? { label: "Create invoice", href: `/billing/new-invoice?memberId=${memberId}` }
             : undefined
         }
       />
@@ -66,8 +66,8 @@ export function MemberMembershipsPanel({ memberId }: { memberId: string }) {
     <div className="space-y-3">
       {canAssign && (
         <div className="flex justify-end">
-          <ButtonLink href={`/memberships/active/add?memberId=${memberId}`} size="sm">
-            Assign membership
+          <ButtonLink href={`/billing/new-invoice?memberId=${memberId}`} size="sm">
+            Create invoice
           </ButtonLink>
         </div>
       )}

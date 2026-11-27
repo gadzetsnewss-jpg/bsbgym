@@ -524,13 +524,13 @@ export function MemberForm({ mode, memberId }: MemberFormProps) {
             >
               View member
             </Button>
-            {canAssignMembership && savedMemberId && (
+            {savedMemberId && (
               <Button
                 onClick={() =>
-                  router.push(`/memberships/active/add?memberId=${savedMemberId}`)
+                  router.push(`/billing/new-invoice?memberId=${savedMemberId}`)
                 }
               >
-                Add membership
+                Create invoice & membership
               </Button>
             )}
           </>

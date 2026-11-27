@@ -178,7 +178,7 @@ export const activeMembershipResource: ResourceConfig<MembershipRow> = {
   validate: fromZod(membershipFormSchema),
   adapter: activeMembershipAdapter,
   displayName: (row) => `${row.memberName} — ${row.planName}`,
-  createLabel: "Assign membership",
+  createLabel: "Create invoice",
   billingHandoff: "assign",
   extraRowActions: membershipRowActions,
 };

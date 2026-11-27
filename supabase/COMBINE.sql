@@ -4716,3 +4716,1906 @@ cross join unnest(array[
 ]) as p(permission)
 where r.slug = 'member'
 on conflict (role_id, permission) do nothing;
+
+
+-- =============================================================================
+-- BSB FitForge - Unify New Invoice & Active Memberships Workflow
+-- =============================================================================
+-- Additive. Ensures New Invoice is the single primary workflow for selling/assigning
+-- a paid membership:
+-- 1. sync_invoice_membership(p_invoice_id uuid)
+-- 2. link_invoice_membership(p_invoice_id uuid, p_membership_id uuid)
+-- 3. update refresh_invoice_status(p_invoice_id uuid)
+-- 4. update issue_invoice(p_invoice_id uuid)
+-- 5. update void_invoice(p_invoice_id uuid, p_reason text)
+-- =============================================================================
+
+-- 1. Idempotent sync of invoice membership
+create or replace function public.sync_invoice_membership(p_invoice_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invoice public.invoices%rowtype;
+  v_item record;
+  v_plan public.membership_plans%rowtype;
+  v_start date;
+  v_end date;
+  v_status text;
+  v_membership_id uuid;
+  v_paid numeric;
+  v_existing_end date;
+begin
+  select * into v_invoice from public.invoices where id = p_invoice_id;
+  if v_invoice.id is null then
+    return null;
+  end if;
+
+  -- Draft or void invoices do not activate or create active memberships
+  if v_invoice.status in ('draft', 'void') then
+    return v_invoice.membership_id;
+  end if;
+
+  select coalesce(sum(amount), 0) into v_paid
+  from public.payments
+  where invoice_id = p_invoice_id;
+
+  -- If invoice already has a linked membership:
+  if v_invoice.membership_id is not null then
+    -- If payments exist and status was pending, promote to active
+    if v_paid > 0 then
+      update public.memberships
+      set status = 'active'
+      where id = v_invoice.membership_id
+        and status = 'pending';
+    end if;
+    return v_invoice.membership_id;
+  end if;
+
+  -- Find the first membership plan item on this invoice
+  select * into v_item
+  from public.invoice_items
+  where invoice_id = p_invoice_id
+    and plan_id is not null
+    and item_type in ('membership', 'renewal', 'upgrade')
+  order by sort_order asc
+  limit 1;
+
+  if v_item.id is null then
+    return null;
+  end if;
+
+  select * into v_plan
+  from public.membership_plans
+  where id = v_item.plan_id and organization_id = v_invoice.organization_id;
+  if v_plan.id is null then
+    return null;
+  end if;
+
+  -- Initial membership status:
+  -- If payment received (> 0), active. If zero payment, pending payment.
+  if v_paid > 0 then
+    v_status := 'active';
+  else
+    v_status := 'pending';
+  end if;
+
+  v_start := coalesce(v_invoice.issue_date, (timezone('utc', now()))::date);
+
+  -- Check if member already has an active membership
+  select max(end_date) into v_existing_end
+  from public.memberships
+  where organization_id = v_invoice.organization_id
+    and member_id = v_invoice.member_id
+    and status = 'active'
+    and end_date >= v_start;
+
+  if v_existing_end is not null then
+    -- Sequence renewal to start the day after current active membership ends
+    v_start := v_existing_end + 1;
+  end if;
+
+  v_end := v_start + (v_plan.duration_days || ' days')::interval;
+
+  -- Idempotently insert membership
+  insert into public.memberships (
+    organization_id, branch_id, member_id, plan_id, status,
+    start_date, end_date, price, discount, final_amount,
+    notes, created_by
+  )
+  values (
+    v_invoice.organization_id,
+    v_invoice.branch_id,
+    v_invoice.member_id,
+    v_item.plan_id,
+    v_status,
+    v_start,
+    v_end,
+    v_item.unit_price,
+    coalesce(v_item.discount, 0),
+    greatest(v_item.unit_price - coalesce(v_item.discount, 0), 0),
+    'Created from invoice ' || v_invoice.invoice_number,
+    v_invoice.created_by
+  )
+  returning id into v_membership_id;
+
+  -- Link invoice to newly created membership
+  update public.invoices
+  set membership_id = v_membership_id
+  where id = p_invoice_id;
+
+  return v_membership_id;
+end;
+$$;
+
+grant execute on function public.sync_invoice_membership(uuid) to authenticated;
+
+-- 2. Link invoice to membership RPC
+create or replace function public.link_invoice_membership(
+  p_invoice_id uuid,
+  p_membership_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+begin
+  select organization_id into v_org_id from public.invoices where id = p_invoice_id;
+  if v_org_id is null then
+    raise exception 'invoice not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'billing.create');
+
+  if not exists (
+    select 1 from public.memberships
+    where id = p_membership_id and organization_id = v_org_id
+  ) then
+    raise exception 'membership not found';
+  end if;
+
+  update public.invoices
+  set membership_id = p_membership_id
+  where id = p_invoice_id;
+end;
+$$;
+
+grant execute on function public.link_invoice_membership(uuid, uuid) to authenticated;
+
+-- 3. Enhance refresh_invoice_status to keep membership in sync
+create or replace function public.refresh_invoice_status(p_invoice_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invoice public.invoices%rowtype;
+  v_paid numeric;
+  v_credited numeric;
+  v_balance numeric;
+  v_status text;
+begin
+  select * into v_invoice from public.invoices where id = p_invoice_id;
+  if v_invoice.id is null or v_invoice.status in ('draft', 'void') then
+    return;
+  end if;
+
+  select coalesce(sum(amount), 0) into v_paid
+  from public.payments
+  where invoice_id = p_invoice_id;
+
+  select coalesce(sum(amount), 0) into v_credited
+  from public.credit_notes
+  where invoice_id = p_invoice_id and status = 'applied';
+
+  v_paid := public.round_money(v_paid);
+  v_credited := public.round_money(v_credited);
+  v_balance := public.round_money(v_invoice.total - v_paid - v_credited);
+
+  if v_balance <= 0 then
+    v_status := 'paid';
+  elsif v_paid > 0 then
+    v_status := 'partially_paid';
+  elsif v_invoice.due_date is not null and v_invoice.due_date < (timezone('utc', now()))::date then
+    v_status := 'overdue';
+  else
+    v_status := 'issued';
+  end if;
+
+  update public.invoices set
+    amount_paid = v_paid,
+    amount_credited = v_credited,
+    status = v_status
+  where id = p_invoice_id;
+
+  -- Ensure membership sync & promote pending membership to active if paid
+  perform public.sync_invoice_membership(p_invoice_id);
+end;
+$$;
+
+grant execute on function public.refresh_invoice_status(uuid) to authenticated;
+
+-- 4. Enhance issue_invoice to trigger membership sync
+create or replace function public.issue_invoice(p_invoice_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_status text;
+begin
+  select organization_id, status into v_org_id, v_status
+  from public.invoices where id = p_invoice_id;
+  if v_org_id is null then
+    raise exception 'invoice not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'billing.create'::text);
+  if v_status is distinct from 'draft' then
+    raise exception 'only draft invoices can be issued';
+  end if;
+  update public.invoices set status = 'issued' where id = p_invoice_id;
+  perform public.refresh_invoice_status(p_invoice_id);
+  perform public.sync_invoice_membership(p_invoice_id);
+end;
+$$;
+
+grant execute on function public.issue_invoice(uuid) to authenticated;
+
+-- 5. Enhance void_invoice to cancel pending memberships
+create or replace function public.void_invoice(p_invoice_id uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_status text;
+  v_membership_id uuid;
+begin
+  select organization_id, status, membership_id into v_org_id, v_status, v_membership_id
+  from public.invoices where id = p_invoice_id;
+  if v_org_id is null then
+    raise exception 'invoice not found';
+  end if;
+  perform public.require_org_permission(v_org_id, 'billing.void');
+  if v_status = 'void' then
+    raise exception 'invoice is already cancelled';
+  end if;
+  if v_status = 'paid' then
+    raise exception 'paid invoices cannot be cancelled; issue a credit note or refund';
+  end if;
+
+  update public.invoices set
+    status = 'void',
+    notes = case
+      when nullif(trim(p_reason), '') is null then notes
+      else coalesce(notes || E'\n', '') || 'Cancelled: ' || trim(p_reason)
+    end
+  where id = p_invoice_id;
+
+  -- If membership is still pending payment, cancel it
+  if v_membership_id is not null then
+    update public.memberships
+    set status = 'cancelled'
+    where id = v_membership_id
+      and status = 'pending';
+  end if;
+end;
+$$;
+
+grant execute on function public.void_invoice(uuid, text) to authenticated;
+-- Migration: 20261127000043_trainer_nutrition_planning.sql
+-- Description: Upgrade BSB FitForge Trainer Diet Plan into a Complete Nutrition Planning Module.
+-- Adds goals, macro targets, meal scheduling, and food item details.
+-- Enforces that draft plans remain hidden from members at the database RLS level.
+
+-- 1. Extend public.diet_plans
+alter table public.diet_plans
+  add column if not exists goal text check (goal is null or goal in ('Fat Loss', 'Muscle Gain', 'Weight Maintenance', 'General Fitness', 'Custom')),
+  add column if not exists status text not null default 'active' check (status in ('draft', 'active', 'completed')),
+  add column if not exists daily_calorie_target integer check (daily_calorie_target is null or daily_calorie_target >= 0),
+  add column if not exists protein_target_g numeric(6,1) check (protein_target_g is null or protein_target_g >= 0),
+  add column if not exists carb_target_g numeric(6,1) check (carb_target_g is null or carb_target_g >= 0),
+  add column if not exists fat_target_g numeric(6,1) check (fat_target_g is null or fat_target_g >= 0),
+  add column if not exists water_intake_liters numeric(4,1) check (water_intake_liters is null or water_intake_liters >= 0);
+
+-- Sync initial status for existing rows
+update public.diet_plans
+set status = case when is_active then 'active' else 'completed' end
+where status is null or status = 'active';
+
+create index if not exists idx_diet_plans_member_status on public.diet_plans(member_id, status);
+create index if not exists idx_diet_plans_org_status on public.diet_plans(organization_id, status);
+
+-- 2. Extend public.diet_plan_items
+alter table public.diet_plan_items
+  add column if not exists meal_time text,
+  add column if not exists food_name text,
+  add column if not exists quantity numeric(8,2) check (quantity is null or quantity >= 0),
+  add column if not exists unit text,
+  add column if not exists protein_g numeric(6,1) check (protein_g is null or protein_g >= 0),
+  add column if not exists carbs_g numeric(6,1) check (carbs_g is null or carbs_g >= 0),
+  add column if not exists fat_g numeric(6,1) check (fat_g is null or fat_g >= 0),
+  add column if not exists instructions text;
+
+create index if not exists idx_diet_plan_items_plan_sort on public.diet_plan_items(diet_plan_id, sort_order);
+
+-- 3. Scoped RLS: Members can view their published plans only; draft plans remain hidden
+drop policy if exists "org members can view diet plans" on public.diet_plans;
+create policy "org members can view diet plans"
+  on public.diet_plans for select
+  using (
+    public.is_org_member(organization_id)
+    and public.can_view_member_data(organization_id, member_id)
+    and (
+      public.current_org_role_slug(organization_id) is distinct from 'member'
+      or status in ('active', 'completed')
+    )
+  );
+
+drop policy if exists "org members can view diet plan items" on public.diet_plan_items;
+create policy "org members can view diet plan items"
+  on public.diet_plan_items for select
+  using (
+    exists (
+      select 1
+      from public.diet_plans parent
+      where parent.id = diet_plan_id
+        and parent.organization_id = diet_plan_items.organization_id
+        and public.is_org_member(parent.organization_id)
+        and public.can_view_member_data(parent.organization_id, parent.member_id)
+        and (
+          public.current_org_role_slug(parent.organization_id) is distinct from 'member'
+          or parent.status in ('active', 'completed')
+        )
+    )
+  );
+
+-- 4. RPC: save_full_diet_plan (Handles creation, updating, meal scheduling, and publishing)
+create or replace function public.save_full_diet_plan(
+  p_org_id uuid,
+  p_plan_id uuid default null,
+  p_member_id uuid default null,
+  p_trainer_id uuid default null,
+  p_name text default null,
+  p_goal text default null,
+  p_status text default 'active',
+  p_start_date date default null,
+  p_end_date date default null,
+  p_daily_calorie_target integer default null,
+  p_protein_target_g numeric default null,
+  p_carb_target_g numeric default null,
+  p_fat_target_g numeric default null,
+  p_water_intake_liters numeric default null,
+  p_notes text default null,
+  p_items jsonb default '[]'::jsonb
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan_id uuid;
+  v_name text;
+  v_status text;
+  v_is_active boolean;
+  v_item jsonb;
+  v_item_meal text;
+  v_item_desc text;
+  v_item_food text;
+  v_item_cals integer;
+  v_sort integer := 0;
+  v_trainer_id uuid := p_trainer_id;
+  v_existing_org uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  v_status := coalesce(nullif(trim(p_status), ''), 'active');
+  if v_status not in ('draft', 'active', 'completed') then
+    v_status := 'active';
+  end if;
+  v_is_active := (v_status = 'active');
+
+  -- Verify user has permission to manage fitness or is assigned trainer
+  if not (
+    public.user_has_permission(p_org_id, 'fitness.manage')
+    or (
+      public.current_org_role_slug(p_org_id) = 'trainer'
+      and public.can_view_member_data(p_org_id, p_member_id)
+    )
+  ) then
+    raise exception 'insufficient privileges';
+  end if;
+
+  -- If user is a trainer, ensure trainer_id matches their linked trainer
+  if public.current_org_role_slug(p_org_id) = 'trainer' then
+    v_trainer_id := public.linked_trainer_id(p_org_id);
+  end if;
+
+  -- Validate member exists in org
+  if not exists (
+    select 1 from public.gym_members m
+    where m.id = p_member_id and m.organization_id = p_org_id
+  ) then
+    raise exception 'member not found';
+  end if;
+
+  v_name := trim(p_name);
+  if v_name is null or v_name = '' then
+    raise exception 'plan name is required';
+  end if;
+
+  if p_start_date is not null and p_end_date is not null and p_end_date < p_start_date then
+    raise exception 'end date cannot be before start date';
+  end if;
+
+  -- If publishing (status = 'active'), mark previously active plans for this member as completed
+  if v_status = 'active' then
+    update public.diet_plans
+    set status = 'completed',
+        is_active = false,
+        updated_at = now()
+    where organization_id = p_org_id
+      and member_id = p_member_id
+      and status = 'active'
+      and (p_plan_id is null or id <> p_plan_id);
+  end if;
+
+  if p_plan_id is not null then
+    -- Verify plan belongs to organization
+    select organization_id into v_existing_org
+    from public.diet_plans
+    where id = p_plan_id;
+
+    if v_existing_org is null or v_existing_org <> p_org_id then
+      raise exception 'plan not found';
+    end if;
+
+    update public.diet_plans set
+      member_id = p_member_id,
+      trainer_id = v_trainer_id,
+      name = v_name,
+      goal = nullif(trim(p_goal), ''),
+      status = v_status,
+      daily_calorie_target = p_daily_calorie_target,
+      protein_target_g = p_protein_target_g,
+      carb_target_g = p_carb_target_g,
+      fat_target_g = p_fat_target_g,
+      water_intake_liters = p_water_intake_liters,
+      start_date = p_start_date,
+      end_date = p_end_date,
+      notes = nullif(trim(p_notes), ''),
+      is_active = v_is_active,
+      updated_at = now()
+    where id = p_plan_id;
+
+    v_plan_id := p_plan_id;
+  else
+    insert into public.diet_plans (
+      organization_id, member_id, trainer_id, name, goal, status,
+      daily_calorie_target, protein_target_g, carb_target_g, fat_target_g, water_intake_liters,
+      start_date, end_date, notes, is_active, created_by, created_at, updated_at
+    ) values (
+      p_org_id, p_member_id, v_trainer_id, v_name, nullif(trim(p_goal), ''), v_status,
+      p_daily_calorie_target, p_protein_target_g, p_carb_target_g, p_fat_target_g, p_water_intake_liters,
+      p_start_date, p_end_date, nullif(trim(p_notes), ''), v_is_active, auth.uid(), now(), now()
+    )
+    returning id into v_plan_id;
+  end if;
+
+  -- Recreate items atomically if items are provided
+  if p_items is not null and jsonb_typeof(p_items) = 'array' then
+    delete from public.diet_plan_items
+    where diet_plan_id = v_plan_id;
+
+    for v_item in select * from jsonb_array_elements(p_items)
+    loop
+      v_item_meal := coalesce(nullif(trim(v_item->>'meal'), ''), 'Meal');
+      v_item_food := nullif(trim(v_item->>'foodName'), '');
+      v_item_desc := coalesce(v_item_food, nullif(trim(v_item->>'description'), ''), 'Item');
+      v_item_cals := case
+        when v_item->>'calories' is not null and trim(v_item->>'calories') <> ''
+        then (v_item->>'calories')::integer
+        else null
+      end;
+
+      insert into public.diet_plan_items (
+        organization_id,
+        diet_plan_id,
+        meal,
+        description,
+        calories,
+        sort_order,
+        meal_time,
+        food_name,
+        quantity,
+        unit,
+        protein_g,
+        carbs_g,
+        fat_g,
+        instructions
+      ) values (
+        p_org_id,
+        v_plan_id,
+        v_item_meal,
+        v_item_desc,
+        v_item_cals,
+        coalesce((v_item->>'sortOrder')::integer, v_sort),
+        nullif(trim(v_item->>'mealTime'), ''),
+        v_item_food,
+        case
+          when v_item->>'quantity' is not null and trim(v_item->>'quantity') <> ''
+          then (v_item->>'quantity')::numeric
+          else null
+        end,
+        nullif(trim(v_item->>'unit'), ''),
+        case
+          when v_item->>'proteinG' is not null and trim(v_item->>'proteinG') <> ''
+          then (v_item->>'proteinG')::numeric
+          else null
+        end,
+        case
+          when v_item->>'carbsG' is not null and trim(v_item->>'carbsG') <> ''
+          then (v_item->>'carbsG')::numeric
+          else null
+        end,
+        case
+          when v_item->>'fatG' is not null and trim(v_item->>'fatG') <> ''
+          then (v_item->>'fatG')::numeric
+          else null
+        end,
+        nullif(trim(v_item->>'instructions'), '')
+      );
+
+      v_sort := v_sort + 1;
+    end loop;
+  end if;
+
+  return v_plan_id;
+end;
+$$;
+
+revoke all on function public.save_full_diet_plan from public, anon;
+grant execute on function public.save_full_diet_plan to authenticated;
+
+-- 5. RPC: publish_diet_plan
+create or replace function public.publish_diet_plan(p_plan_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan record;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_plan from public.diet_plans where id = p_plan_id;
+  if v_plan.id is null then
+    raise exception 'plan not found';
+  end if;
+
+  if not (
+    public.user_has_permission(v_plan.organization_id, 'fitness.manage')
+    or (
+      public.current_org_role_slug(v_plan.organization_id) = 'trainer'
+      and public.can_view_member_data(v_plan.organization_id, v_plan.member_id)
+    )
+  ) then
+    raise exception 'insufficient privileges';
+  end if;
+
+  -- Archive existing active plans for this member
+  update public.diet_plans
+  set status = 'completed',
+      is_active = false,
+      updated_at = now()
+  where organization_id = v_plan.organization_id
+    and member_id = v_plan.member_id
+    and status = 'active'
+    and id <> p_plan_id;
+
+  -- Publish this plan
+  update public.diet_plans
+  set status = 'active',
+      is_active = true,
+      updated_at = now()
+  where id = p_plan_id;
+end;
+$$;
+
+revoke all on function public.publish_diet_plan(uuid) from public, anon;
+grant execute on function public.publish_diet_plan(uuid) to authenticated;
+
+-- 6. RPC: complete_diet_plan
+create or replace function public.complete_diet_plan(p_plan_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan record;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_plan from public.diet_plans where id = p_plan_id;
+  if v_plan.id is null then
+    raise exception 'plan not found';
+  end if;
+
+  if not (
+    public.user_has_permission(v_plan.organization_id, 'fitness.manage')
+    or (
+      public.current_org_role_slug(v_plan.organization_id) = 'trainer'
+      and public.can_view_member_data(v_plan.organization_id, v_plan.member_id)
+    )
+  ) then
+    raise exception 'insufficient privileges';
+  end if;
+
+  update public.diet_plans
+  set status = 'completed',
+      is_active = false,
+      updated_at = now()
+  where id = p_plan_id;
+end;
+$$;
+
+revoke all on function public.complete_diet_plan(uuid) from public, anon;
+grant execute on function public.complete_diet_plan(uuid) to authenticated;
+
+
+-- =============================================================================
+-- Migration: 20261127000044_trainer_nutrition_hardening.sql
+-- Description: Corrective hardening for Nutrition Planning Module (20261127000043).
+-- =============================================================================
+-- Fixes:
+-- 1. SELECT RLS policies:
+--    - Replaces broad role check with explicit user_has_permission(organization_id, 'fitness.manage')
+--      for privileged Owner/Admin roles. Cashier, Receptionist, and unauthorized roles are blocked.
+--    - Keeps assigned Trainer access (own plans + actively assigned members) and Member access (own active/completed plans).
+-- 2. Save RPC lifecycle & Immutability:
+--    - save_full_diet_plan saves strictly as Draft (status = 'draft', is_active = false).
+--    - Explicitly rejects p_status = 'active' and p_status = 'completed' for normal save operations.
+--    - Explicitly rejects modifying existing Active and Completed plans in-place.
+--    - Adds clone_diet_plan_to_draft RPC to create a new Draft from an existing plan while preserving the Active plan.
+--    - Never archives an existing active plan during Save.
+-- 3. Content Validation & Placeholder Defaults Removal:
+--    - Removes placeholder defaults such as 'Meal' and 'Item'.
+--    - Requires meaningful explicit meal name and food name or description.
+--    - Publish strictly rejects empty plans and blank/placeholder-only content.
+-- 4. Owner/Admin Edits & Immutability:
+--    - For Owner/Admin edits on existing draft plans, preserves existing trainer_id when p_trainer_id is omitted.
+--    - Changes trainer assignment only on an explicit authorized reassignment.
+--    - Completed plans remain strictly immutable for Owner/Admin too; clone or create a new Draft instead.
+-- 5. Trainer Reassignment Guards:
+--    - When a Trainer updates an existing plan, requires p_member_id = v_existing_plan.member_id.
+--    - Trainers cannot transfer an existing plan to another Member.
+-- 6. Publish Validation & Member-Level Serialization:
+--    - Serializes concurrent publishing per member by locking gym_members with FOR UPDATE.
+--    - Verifies authorization and active Trainer assignment first.
+--    - Verifies the target plan is a valid Draft before archiving any existing active plan.
+--    - Only after all validation succeeds, archives previous active plan and activates new Draft atomically.
+-- 7. Data preservation:
+--    - Preserves existing NULL p_items behavior so omitted meal items never delete existing items.
+--    - Atomically pre-validates jsonb items array before modifying diet_plan_items.
+-- =============================================================================
+
+-- 1. Hardened SELECT RLS Policy on public.diet_plans
+drop policy if exists "org members can view diet plans" on public.diet_plans;
+drop policy if exists "trainers can view diet plans" on public.diet_plans;
+drop policy if exists "members can view diet plans" on public.diet_plans;
+drop policy if exists "authorized users can view diet plans" on public.diet_plans;
+drop policy if exists "diet_plans_select_policy" on public.diet_plans;
+drop policy if exists "diet_plans_select_staff" on public.diet_plans;
+drop policy if exists "diet_plans_select_member" on public.diet_plans;
+drop policy if exists "diet_plans_select_trainer_or_admin" on public.diet_plans;
+
+create policy "authorized users can view diet plans"
+  on public.diet_plans for select
+  to authenticated
+  using (
+    public.is_org_member(organization_id)
+    and (
+      -- Explicitly authorized Owner / Admin / Staff with fitness.manage permission
+      public.user_has_permission(organization_id, 'fitness.manage')
+      -- Assigned Trainers: only their actively assigned members' plans where they are the trainer
+      or (
+        public.current_org_role_slug(organization_id) = 'trainer'
+        and trainer_id = public.linked_trainer_id(organization_id)
+        and public.can_view_member_data(organization_id, member_id)
+      )
+      -- Members: only active or completed plans for themselves (strictly never drafts)
+      or (
+        public.current_org_role_slug(organization_id) = 'member'
+        and public.can_view_member_data(organization_id, member_id)
+        and status in ('active', 'completed')
+      )
+    )
+  );
+
+-- 2. Hardened SELECT RLS Policy on public.diet_plan_items
+drop policy if exists "org members can view diet plan items" on public.diet_plan_items;
+drop policy if exists "trainers can view diet plan items" on public.diet_plan_items;
+drop policy if exists "members can view diet plan items" on public.diet_plan_items;
+drop policy if exists "authorized users can view diet plan items" on public.diet_plan_items;
+drop policy if exists "diet_plan_items_select_policy" on public.diet_plan_items;
+drop policy if exists "diet_plan_items_select_staff" on public.diet_plan_items;
+drop policy if exists "diet_plan_items_select_member" on public.diet_plan_items;
+drop policy if exists "diet_plan_items_select_trainer_or_admin" on public.diet_plan_items;
+
+create policy "authorized users can view diet plan items"
+  on public.diet_plan_items for select
+  to authenticated
+  using (
+    exists (
+      select 1
+      from public.diet_plans parent
+      where parent.id = diet_plan_items.diet_plan_id
+        and parent.organization_id = diet_plan_items.organization_id
+        and public.is_org_member(parent.organization_id)
+        and (
+          -- Explicitly authorized Owner / Admin / Staff with fitness.manage permission
+          public.user_has_permission(parent.organization_id, 'fitness.manage')
+          -- Assigned Trainers: only their actively assigned members' plans where they are the trainer
+          or (
+            public.current_org_role_slug(parent.organization_id) = 'trainer'
+            and parent.trainer_id = public.linked_trainer_id(parent.organization_id)
+            and public.can_view_member_data(parent.organization_id, parent.member_id)
+          )
+          -- Members: only active or completed plans for themselves (strictly never drafts)
+          or (
+            public.current_org_role_slug(parent.organization_id) = 'member'
+            and public.can_view_member_data(parent.organization_id, parent.member_id)
+            and parent.status in ('active', 'completed')
+          )
+        )
+    )
+  );
+
+-- 3. Hardened RPC: save_full_diet_plan (Saves strictly Draft; rejects modifying Active/Completed plans)
+create or replace function public.save_full_diet_plan(
+  p_org_id uuid,
+  p_plan_id uuid default null,
+  p_member_id uuid default null,
+  p_trainer_id uuid default null,
+  p_name text default null,
+  p_goal text default null,
+  p_status text default 'draft',
+  p_start_date date default null,
+  p_end_date date default null,
+  p_daily_calorie_target integer default null,
+  p_protein_target_g numeric default null,
+  p_carb_target_g numeric default null,
+  p_fat_target_g numeric default null,
+  p_water_intake_liters numeric default null,
+  p_notes text default null,
+  p_items jsonb default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan_id uuid;
+  v_name text;
+  v_status text;
+  v_item jsonb;
+  v_item_meal text;
+  v_item_desc text;
+  v_item_food text;
+  v_item_cals integer;
+  v_item_qty numeric;
+  v_item_protein numeric;
+  v_item_carbs numeric;
+  v_item_fat numeric;
+  v_sort integer := 0;
+  v_role text;
+  v_trainer_id uuid;
+  v_existing_plan public.diet_plans%rowtype;
+  v_target_member_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if p_org_id is null then
+    raise exception 'organization_id is required';
+  end if;
+
+  if not public.is_org_member(p_org_id) then
+    raise exception 'not an organization member';
+  end if;
+
+  v_role := public.current_org_role_slug(p_org_id);
+  if v_role is null or v_role = 'member' then
+    raise exception 'members cannot create or edit diet plans';
+  end if;
+
+  -- 1. Save RPC lifecycle: save_full_diet_plan only saves Draft
+  -- Reject active and completed status for normal save operations
+  v_status := coalesce(nullif(trim(p_status), ''), 'draft');
+  if v_status in ('active', 'completed') then
+    raise exception 'save_full_diet_plan only saves draft plans; use publish_diet_plan to activate a plan';
+  end if;
+  if v_status <> 'draft' then
+    raise exception 'invalid diet plan status: %', p_status;
+  end if;
+
+  -- 2. If updating an existing plan, lock and verify ownership, immutability, and assignment
+  if p_plan_id is not null then
+    select * into v_existing_plan
+    from public.diet_plans
+    where id = p_plan_id
+    for update;
+
+    if v_existing_plan.id is null or v_existing_plan.organization_id <> p_org_id then
+      raise exception 'plan not found';
+    end if;
+
+    -- Reject modifying existing Active or Completed plans in-place (must clone or create new draft)
+    if v_existing_plan.status in ('active', 'completed') then
+      raise exception 'cannot modify an % diet plan; create or clone to a new draft instead', v_existing_plan.status;
+    end if;
+
+    if v_role = 'trainer' then
+      v_trainer_id := public.linked_trainer_id(p_org_id);
+      if v_trainer_id is null then
+        raise exception 'linked trainer not found';
+      end if;
+
+      -- Trainer A must not edit another trainer's plan
+      if v_existing_plan.trainer_id is distinct from v_trainer_id then
+        raise exception 'not authorized to modify another trainer plan';
+      end if;
+
+      -- Verify trainer still has active assignment to the existing plan's member
+      if not public.can_view_member_data(p_org_id, v_existing_plan.member_id) then
+        raise exception 'not authorized: member is not actively assigned to trainer';
+      end if;
+
+      -- Trainers must never transfer an existing plan to another Member
+      if p_member_id is not null and p_member_id is distinct from v_existing_plan.member_id then
+        raise exception 'trainers cannot transfer an existing plan to another member';
+      end if;
+
+      v_target_member_id := v_existing_plan.member_id;
+    elsif public.user_has_permission(p_org_id, 'fitness.manage') then
+      -- Owner/Admin:
+      if p_member_id is not null and p_member_id is distinct from v_existing_plan.member_id then
+        v_target_member_id := p_member_id;
+      else
+        v_target_member_id := v_existing_plan.member_id;
+      end if;
+
+      -- For Owner/Admin edits, preserve existing trainer_id when p_trainer_id is omitted (null)
+      -- Change trainer assignment only on an explicit authorized reassignment.
+      if p_trainer_id is null then
+        v_trainer_id := v_existing_plan.trainer_id;
+      else
+        v_trainer_id := p_trainer_id;
+      end if;
+
+      if v_trainer_id is not null and not exists (
+        select 1 from public.trainers where id = v_trainer_id and organization_id = p_org_id
+      ) then
+        raise exception 'trainer not found in organization';
+      end if;
+    else
+      raise exception 'insufficient privileges';
+    end if;
+  else
+    -- Creating a new plan
+    v_target_member_id := p_member_id;
+    if v_target_member_id is null then
+      raise exception 'member_id is required';
+    end if;
+
+    if v_role = 'trainer' then
+      v_trainer_id := public.linked_trainer_id(p_org_id);
+      if v_trainer_id is null then
+        raise exception 'linked trainer not found';
+      end if;
+
+      -- Verify target member is actively assigned to this trainer
+      if not public.can_view_member_data(p_org_id, v_target_member_id) then
+        raise exception 'member is not assigned to trainer';
+      end if;
+    elsif public.user_has_permission(p_org_id, 'fitness.manage') then
+      v_trainer_id := p_trainer_id;
+      if v_trainer_id is not null and not exists (
+        select 1 from public.trainers where id = v_trainer_id and organization_id = p_org_id
+      ) then
+        raise exception 'trainer not found in organization';
+      end if;
+    else
+      raise exception 'insufficient privileges';
+    end if;
+  end if;
+
+  -- 3. Validate target member exists in organization
+  if not exists (
+    select 1 from public.gym_members m
+    where m.id = v_target_member_id and m.organization_id = p_org_id
+  ) then
+    raise exception 'member not found';
+  end if;
+
+  v_name := trim(p_name);
+  if v_name is null or v_name = '' then
+    raise exception 'plan name is required';
+  end if;
+
+  if p_start_date is not null and p_end_date is not null and p_end_date < p_start_date then
+    raise exception 'end date cannot be before start date';
+  end if;
+
+  -- 4. Upsert plan record strictly as draft (never archive active plans on save)
+  if p_plan_id is not null then
+    update public.diet_plans set
+      member_id = v_target_member_id,
+      trainer_id = v_trainer_id,
+      name = v_name,
+      goal = nullif(trim(p_goal), ''),
+      status = 'draft',
+      daily_calorie_target = p_daily_calorie_target,
+      protein_target_g = p_protein_target_g,
+      carb_target_g = p_carb_target_g,
+      fat_target_g = p_fat_target_g,
+      water_intake_liters = p_water_intake_liters,
+      start_date = p_start_date,
+      end_date = p_end_date,
+      notes = nullif(trim(p_notes), ''),
+      is_active = false,
+      updated_at = now()
+    where id = p_plan_id;
+
+    v_plan_id := p_plan_id;
+  else
+    insert into public.diet_plans (
+      organization_id, member_id, trainer_id, name, goal, status,
+      daily_calorie_target, protein_target_g, carb_target_g, fat_target_g, water_intake_liters,
+      start_date, end_date, notes, is_active, created_by, created_at, updated_at
+    ) values (
+      p_org_id, v_target_member_id, v_trainer_id, v_name, nullif(trim(p_goal), ''), 'draft',
+      p_daily_calorie_target, p_protein_target_g, p_carb_target_g, p_fat_target_g, p_water_intake_liters,
+      p_start_date, p_end_date, nullif(trim(p_notes), ''), false, auth.uid(), now(), now()
+    )
+    returning id into v_plan_id;
+  end if;
+
+  -- 5. Meal items handling:
+  -- If p_items is NULL, PRESERVE existing items!
+  -- Only replace if caller explicitly passes a JSON array.
+  if p_items is not null then
+    if jsonb_typeof(p_items) <> 'array' then
+      raise exception 'items must be a json array or null';
+    end if;
+
+    -- Pre-validate all items before deleting any existing rows (atomic)
+    for v_item in select * from jsonb_array_elements(p_items)
+    loop
+      if jsonb_typeof(v_item) <> 'object' then
+        raise exception 'each item in items must be a json object';
+      end if;
+
+      -- Validate explicit meal name (reject blank or placeholder 'meal')
+      v_item_meal := nullif(trim(v_item->>'meal'), '');
+      if v_item_meal is null or lower(v_item_meal) = 'meal' then
+        raise exception 'each item must have a meaningful explicit meal name';
+      end if;
+
+      -- Validate explicit food name or description (reject blank or placeholder 'item')
+      v_item_food := nullif(trim(v_item->>'foodName'), '');
+      v_item_desc := coalesce(v_item_food, nullif(trim(v_item->>'description'), ''));
+      if v_item_desc is null or lower(v_item_desc) = 'item' then
+        raise exception 'each item must have an explicit food name or description';
+      end if;
+
+      if v_item->>'calories' is not null and trim(v_item->>'calories') <> '' then
+        begin
+          v_item_cals := (v_item->>'calories')::integer;
+          if v_item_cals < 0 then
+            raise exception 'calories cannot be negative';
+          end if;
+        exception when others then
+          raise exception 'invalid calories value: %', v_item->>'calories';
+        end;
+      end if;
+
+      if v_item->>'quantity' is not null and trim(v_item->>'quantity') <> '' then
+        begin
+          v_item_qty := (v_item->>'quantity')::numeric;
+          if v_item_qty < 0 then
+            raise exception 'quantity cannot be negative';
+          end if;
+        exception when others then
+          raise exception 'invalid quantity value: %', v_item->>'quantity';
+        end;
+      end if;
+
+      if v_item->>'proteinG' is not null and trim(v_item->>'proteinG') <> '' then
+        begin
+          v_item_protein := (v_item->>'proteinG')::numeric;
+          if v_item_protein < 0 then
+            raise exception 'protein cannot be negative';
+          end if;
+        exception when others then
+          raise exception 'invalid protein value: %', v_item->>'proteinG';
+        end;
+      end if;
+
+      if v_item->>'carbsG' is not null and trim(v_item->>'carbsG') <> '' then
+        begin
+          v_item_carbs := (v_item->>'carbsG')::numeric;
+          if v_item_carbs < 0 then
+            raise exception 'carbs cannot be negative';
+          end if;
+        exception when others then
+          raise exception 'invalid carbs value: %', v_item->>'carbsG';
+        end;
+      end if;
+
+      if v_item->>'fatG' is not null and trim(v_item->>'fatG') <> '' then
+        begin
+          v_item_fat := (v_item->>'fatG')::numeric;
+          if v_item_fat < 0 then
+            raise exception 'fat cannot be negative';
+          end if;
+        exception when others then
+          raise exception 'invalid fat value: %', v_item->>'fatG';
+        end;
+      end if;
+    end loop;
+
+    -- All items are valid: atomically replace
+    delete from public.diet_plan_items
+    where diet_plan_id = v_plan_id;
+
+    for v_item in select * from jsonb_array_elements(p_items)
+    loop
+      v_item_meal := trim(v_item->>'meal');
+      v_item_food := nullif(trim(v_item->>'foodName'), '');
+      v_item_desc := coalesce(v_item_food, nullif(trim(v_item->>'description'), ''));
+      v_item_cals := case
+        when v_item->>'calories' is not null and trim(v_item->>'calories') <> ''
+        then (v_item->>'calories')::integer
+        else null
+      end;
+
+      insert into public.diet_plan_items (
+        organization_id,
+        diet_plan_id,
+        meal,
+        description,
+        calories,
+        sort_order,
+        meal_time,
+        food_name,
+        quantity,
+        unit,
+        protein_g,
+        carbs_g,
+        fat_g,
+        instructions
+      ) values (
+        p_org_id,
+        v_plan_id,
+        v_item_meal,
+        v_item_desc,
+        v_item_cals,
+        coalesce((v_item->>'sortOrder')::integer, v_sort),
+        nullif(trim(v_item->>'mealTime'), ''),
+        v_item_food,
+        case
+          when v_item->>'quantity' is not null and trim(v_item->>'quantity') <> ''
+          then (v_item->>'quantity')::numeric
+          else null
+        end,
+        nullif(trim(v_item->>'unit'), ''),
+        case
+          when v_item->>'proteinG' is not null and trim(v_item->>'proteinG') <> ''
+          then (v_item->>'proteinG')::numeric
+          else null
+        end,
+        case
+          when v_item->>'carbsG' is not null and trim(v_item->>'carbsG') <> ''
+          then (v_item->>'carbsG')::numeric
+          else null
+        end,
+        case
+          when v_item->>'fatG' is not null and trim(v_item->>'fatG') <> ''
+          then (v_item->>'fatG')::numeric
+          else null
+        end,
+        nullif(trim(v_item->>'instructions'), '')
+      );
+
+      v_sort := v_sort + 1;
+    end loop;
+  end if;
+
+  return v_plan_id;
+end;
+$$;
+
+revoke all on function public.save_full_diet_plan from public, anon;
+grant execute on function public.save_full_diet_plan to authenticated;
+
+-- 4. New RPC: clone_diet_plan_to_draft
+-- Creates a new Draft version copying all targets and meal items from an Active or Completed plan.
+-- The existing Active Plan remains visible and active until the new Draft is published.
+create or replace function public.clone_diet_plan_to_draft(p_plan_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_source public.diet_plans%rowtype;
+  v_new_plan_id uuid;
+  v_role text;
+  v_trainer_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if p_plan_id is null then
+    raise exception 'plan_id is required';
+  end if;
+
+  select * into v_source
+  from public.diet_plans
+  where id = p_plan_id;
+
+  if v_source.id is null then
+    raise exception 'plan not found';
+  end if;
+
+  -- Permit cloning only from Active or Completed source plans as intended
+  if v_source.status not in ('active', 'completed') then
+    raise exception 'only active or completed diet plans can be cloned to draft';
+  end if;
+
+  v_role := public.current_org_role_slug(v_source.organization_id);
+
+  if v_role = 'trainer' then
+    v_trainer_id := public.linked_trainer_id(v_source.organization_id);
+    if v_trainer_id is null or v_source.trainer_id is distinct from v_trainer_id then
+      raise exception 'not authorized to clone another trainer plan';
+    end if;
+
+    if not public.can_view_member_data(v_source.organization_id, v_source.member_id) then
+      raise exception 'not authorized: member is not actively assigned to trainer';
+    end if;
+  elsif not public.user_has_permission(v_source.organization_id, 'fitness.manage') then
+    raise exception 'insufficient privileges';
+  else
+    v_trainer_id := v_source.trainer_id;
+  end if;
+
+  -- Create a new draft plan copying all goals, targets, dates, notes from the source plan
+  insert into public.diet_plans (
+    organization_id,
+    member_id,
+    trainer_id,
+    name,
+    goal,
+    status,
+    daily_calorie_target,
+    protein_target_g,
+    carb_target_g,
+    fat_target_g,
+    water_intake_liters,
+    start_date,
+    end_date,
+    notes,
+    is_active,
+    created_by,
+    created_at,
+    updated_at
+  ) values (
+    v_source.organization_id,
+    v_source.member_id,
+    v_trainer_id,
+    v_source.name || ' (Draft)',
+    v_source.goal,
+    'draft',
+    v_source.daily_calorie_target,
+    v_source.protein_target_g,
+    v_source.carb_target_g,
+    v_source.fat_target_g,
+    v_source.water_intake_liters,
+    coalesce(v_source.start_date, (timezone('utc', now()))::date),
+    v_source.end_date,
+    v_source.notes,
+    false,
+    auth.uid(),
+    now(),
+    now()
+  )
+  returning id into v_new_plan_id;
+
+  -- Copy all meal items from source plan to the new draft
+  insert into public.diet_plan_items (
+    organization_id,
+    diet_plan_id,
+    meal,
+    description,
+    calories,
+    sort_order,
+    meal_time,
+    food_name,
+    quantity,
+    unit,
+    protein_g,
+    carbs_g,
+    fat_g,
+    instructions
+  )
+  select
+    organization_id,
+    v_new_plan_id,
+    meal,
+    description,
+    calories,
+    sort_order,
+    meal_time,
+    food_name,
+    quantity,
+    unit,
+    protein_g,
+    carbs_g,
+    fat_g,
+    instructions
+  from public.diet_plan_items
+  where diet_plan_id = p_plan_id
+  order by sort_order asc;
+
+  return v_new_plan_id;
+end;
+$$;
+
+revoke all on function public.clone_diet_plan_to_draft(uuid) from public, anon;
+grant execute on function public.clone_diet_plan_to_draft(uuid) to authenticated;
+
+-- 5. Hardened RPC: publish_diet_plan (Strict atomic validation and publish with Member-level lock)
+create or replace function public.publish_diet_plan(p_plan_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan public.diet_plans%rowtype;
+  v_role text;
+  v_trainer_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if p_plan_id is null then
+    raise exception 'plan_id is required';
+  end if;
+
+  -- 1. Initial retrieval of target plan to identify member and organization
+  select * into v_plan
+  from public.diet_plans
+  where id = p_plan_id;
+
+  if v_plan.id is null then
+    raise exception 'plan not found';
+  end if;
+
+  -- 2. SERIALIZE PUBLISHING PER MEMBER:
+  -- Lock the member row in gym_members with FOR UPDATE.
+  -- This prevents concurrent publish requests for different Draft plans of the same Member
+  -- from racing and creating multiple active plans.
+  perform 1
+  from public.gym_members
+  where id = v_plan.member_id
+    and organization_id = v_plan.organization_id
+  for update;
+
+  -- 3. Lock target plan row and re-read state after acquiring Member lock
+  select * into v_plan
+  from public.diet_plans
+  where id = p_plan_id
+  for update;
+
+  -- 4. Verify authorization and current active Trainer assignment FIRST
+  v_role := public.current_org_role_slug(v_plan.organization_id);
+
+  if v_role = 'trainer' then
+    v_trainer_id := public.linked_trainer_id(v_plan.organization_id);
+    if v_trainer_id is null or v_plan.trainer_id is distinct from v_trainer_id then
+      raise exception 'not authorized to publish another trainer plan';
+    end if;
+
+    if not public.can_view_member_data(v_plan.organization_id, v_plan.member_id) then
+      raise exception 'not authorized: member is not actively assigned to trainer';
+    end if;
+  elsif not public.user_has_permission(v_plan.organization_id, 'fitness.manage') then
+    raise exception 'insufficient privileges';
+  end if;
+
+  -- 5. Verify target plan is a valid Draft (reject completed plans, active plans, or non-draft)
+  if v_plan.status = 'completed' then
+    raise exception 'cannot publish a completed diet plan';
+  end if;
+
+  if v_plan.status = 'active' then
+    raise exception 'diet plan is already active';
+  end if;
+
+  if v_plan.status <> 'draft' then
+    raise exception 'only draft diet plans can be published';
+  end if;
+
+  -- 6. Verify target plan has at least one meal item
+  if not exists (
+    select 1
+    from public.diet_plan_items
+    where diet_plan_id = p_plan_id
+  ) then
+    raise exception 'cannot publish diet plan without meal items';
+  end if;
+
+  -- Reject blank and placeholder-only content ('Meal', 'Item', empty text)
+  if exists (
+    select 1
+    from public.diet_plan_items
+    where diet_plan_id = p_plan_id
+      and (
+        meal is null or trim(meal) = '' or lower(trim(meal)) = 'meal'
+        or (
+          (food_name is null or trim(food_name) = '' or lower(trim(food_name)) = 'item')
+          and (description is null or trim(description) = '' or lower(trim(description)) = 'item')
+        )
+      )
+  ) then
+    raise exception 'cannot publish diet plan with blank or placeholder-only meal items';
+  end if;
+
+  -- 7. Only after ALL validation succeeds:
+  -- Archive the previous active plan for this member in this organization
+  update public.diet_plans
+  set status = 'completed',
+      is_active = false,
+      updated_at = now()
+  where organization_id = v_plan.organization_id
+    and member_id = v_plan.member_id
+    and status = 'active'
+    and id <> p_plan_id;
+
+  -- Publish the target plan atomically
+  update public.diet_plans
+  set status = 'active',
+      is_active = true,
+      updated_at = now()
+  where id = p_plan_id;
+end;
+$$;
+
+revoke all on function public.publish_diet_plan(uuid) from public, anon;
+grant execute on function public.publish_diet_plan(uuid) to authenticated;
+
+-- 6. Hardened RPC: complete_diet_plan (Preserves historical items)
+create or replace function public.complete_diet_plan(p_plan_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_plan public.diet_plans%rowtype;
+  v_role text;
+  v_trainer_id uuid;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  if p_plan_id is null then
+    raise exception 'plan_id is required';
+  end if;
+
+  select * into v_plan from public.diet_plans where id = p_plan_id for update;
+  if v_plan.id is null then
+    raise exception 'plan not found';
+  end if;
+
+  v_role := public.current_org_role_slug(v_plan.organization_id);
+
+  if v_role = 'trainer' then
+    v_trainer_id := public.linked_trainer_id(v_plan.organization_id);
+    if v_trainer_id is null or v_plan.trainer_id is distinct from v_trainer_id then
+      raise exception 'not authorized to complete another trainer plan';
+    end if;
+
+    if not public.can_view_member_data(v_plan.organization_id, v_plan.member_id) then
+      raise exception 'not authorized: member is not actively assigned to trainer';
+    end if;
+  elsif not public.user_has_permission(v_plan.organization_id, 'fitness.manage') then
+    raise exception 'insufficient privileges';
+  end if;
+
+  -- Complete plan and preserve all historical diet_plan_items
+  update public.diet_plans
+  set status = 'completed',
+      is_active = false,
+      updated_at = now()
+  where id = p_plan_id;
+end;
+$$;
+
+revoke all on function public.complete_diet_plan(uuid) from public, anon;
+grant execute on function public.complete_diet_plan(uuid) to authenticated;
+
+
+
+-- =============================================================================
+-- Migration: 20261127000045_harden_unify_new_invoice_memberships.sql
+-- Description: Hardened BSB FitForge Unify New Invoice & Active Memberships Workflow.
+-- =============================================================================
+-- Fixes:
+-- 1. Authorization:
+--    - Verify organization ownership and billing permissions inside every externally callable RPC.
+--    - refresh_invoice_status is strictly an internal helper (revoked from public/anon/authenticated).
+--    - sync_invoice_membership checks require_org_permission(org_id, 'billing.create').
+--    - link_invoice_membership checks require_org_permission(org_id, 'billing.create').
+--    - Explicitly revoke execute from PUBLIC and anon; grant only to authenticated where required.
+-- 2. Membership Activation:
+--    - Never activates membership merely because payments > 0.
+--    - Issued/Partially paid invoices create/keep membership as 'pending'.
+--    - Only fully settled invoices (balance <= 0 and status = 'paid') promote membership to 'active'.
+--    - Attendance access remains protected because pending memberships are not active.
+-- 3. Invoice-to-Membership Linking:
+--    - Verifies matching organization, member, and branch between invoice and membership.
+--    - Prevents linking an invoice to a membership belonging to a different member or branch.
+--    - Prevents overwriting an existing conflicting membership link.
+-- 4. Idempotency & Concurrency:
+--    - Locks the invoice row (FOR UPDATE) and locks the member row during sync to prevent race conditions.
+--    - Prevents duplicate membership creation even during concurrent sync calls.
+-- 5. Safe Voiding:
+--    - When an invoice is voided, cancels linked pending/active membership if no other valid invoices exist.
+--    - Preserves existing credit note / refund workflow; cannot void paid invoices directly.
+-- 6. Renewal Sequencing & Dates:
+--    - Sequences renewals after the maximum end_date of active and pending memberships.
+--    - Handles concurrent renewal invoices safely without overlapping dates.
+-- 7. Schema Integrity:
+--    - Strictly avoids non-existent columns (e.g. payments.status).
+--    - Preserves exact existing signatures and return types.
+-- =============================================================================
+
+-- Ensure membership_id index on invoices
+create index if not exists idx_invoices_membership_id on public.invoices(membership_id);
+create index if not exists idx_memberships_member_status on public.memberships(member_id, status);
+
+-- 1. Idempotent sync_invoice_membership RPC
+create or replace function public.sync_invoice_membership(p_invoice_id uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invoice public.invoices%rowtype;
+  v_membership public.memberships%rowtype;
+  v_item record;
+  v_plan public.membership_plans%rowtype;
+  v_start date;
+  v_end date;
+  v_status text;
+  v_membership_id uuid;
+  v_existing_membership_id uuid;
+  v_paid numeric;
+  v_credited numeric;
+  v_balance numeric;
+  v_is_settled boolean;
+  v_existing_end date;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  -- Acquire row-level exclusive lock on the invoice to serialize concurrent sync calls
+  select * into v_invoice
+  from public.invoices
+  where id = p_invoice_id
+  for update;
+
+  if v_invoice.id is null then
+    return null;
+  end if;
+
+  -- Verify caller has billing create permissions for this organization
+  perform public.require_org_permission(v_invoice.organization_id, 'billing.create');
+
+  -- Draft or void invoices do not activate or create active memberships
+  if v_invoice.status in ('draft', 'void') then
+    return v_invoice.membership_id;
+  end if;
+
+  -- Calculate actual settled amount without referencing non-existent payments.status
+  select coalesce(sum(amount), 0) into v_paid
+  from public.payments
+  where invoice_id = p_invoice_id;
+
+  select coalesce(sum(amount), 0) into v_credited
+  from public.credit_notes
+  where invoice_id = p_invoice_id and status = 'applied';
+
+  v_paid := public.round_money(v_paid);
+  v_credited := public.round_money(v_credited);
+  v_balance := public.round_money(v_invoice.total - v_paid - v_credited);
+  v_is_settled := (v_balance <= 0 and v_invoice.status = 'paid');
+
+  -- If invoice already has a linked membership:
+  if v_invoice.membership_id is not null then
+    select * into v_membership
+    from public.memberships
+    where id = v_invoice.membership_id;
+
+    if v_membership.id is not null then
+      -- Fully settled invoice promotes pending membership to active
+      if v_is_settled and v_membership.status = 'pending' then
+        update public.memberships
+        set status = 'active',
+            updated_at = now()
+        where id = v_invoice.membership_id;
+      end if;
+      return v_invoice.membership_id;
+    end if;
+  end if;
+
+  -- Find the first membership plan item on this invoice
+  select * into v_item
+  from public.invoice_items
+  where invoice_id = p_invoice_id
+    and plan_id is not null
+    and item_type in ('membership', 'renewal', 'upgrade')
+  order by sort_order asc
+  limit 1;
+
+  if v_item.id is null then
+    return null;
+  end if;
+
+  select * into v_plan
+  from public.membership_plans
+  where id = v_item.plan_id and organization_id = v_invoice.organization_id;
+  if v_plan.id is null then
+    return null;
+  end if;
+
+  -- Lock the member row to serialize concurrent membership assignments
+  perform 1 from public.gym_members where id = v_invoice.member_id for update;
+
+  -- Uniqueness check: check if a membership was already created for this invoice number
+  select id into v_existing_membership_id
+  from public.memberships
+  where organization_id = v_invoice.organization_id
+    and member_id = v_invoice.member_id
+    and notes = 'Created from invoice ' || v_invoice.invoice_number
+  limit 1;
+
+  if v_existing_membership_id is not null then
+    update public.invoices
+    set membership_id = v_existing_membership_id
+    where id = p_invoice_id;
+
+    if v_is_settled then
+      update public.memberships
+      set status = 'active',
+          updated_at = now()
+      where id = v_existing_membership_id
+        and status = 'pending';
+    end if;
+    return v_existing_membership_id;
+  end if;
+
+  -- Membership status rules:
+  -- Fully settled invoice (balance <= 0 & status = 'paid'): 'active'.
+  -- Zero payment or partial payment: 'pending'.
+  if v_is_settled then
+    v_status := 'active';
+  else
+    v_status := 'pending';
+  end if;
+
+  v_start := coalesce(v_invoice.issue_date, (timezone('utc', now()))::date);
+
+  -- Check existing active or pending memberships to sequence renewals without overlap
+  select max(end_date) into v_existing_end
+  from public.memberships
+  where organization_id = v_invoice.organization_id
+    and member_id = v_invoice.member_id
+    and status in ('active', 'pending')
+    and end_date >= v_start;
+
+  if v_existing_end is not null then
+    v_start := v_existing_end + 1;
+  end if;
+
+  v_end := v_start + (v_plan.duration_days || ' days')::interval;
+
+  -- Idempotently insert membership
+  insert into public.memberships (
+    organization_id, branch_id, member_id, plan_id, status,
+    start_date, end_date, price, discount, final_amount,
+    notes, created_by, created_at, updated_at
+  )
+  values (
+    v_invoice.organization_id,
+    v_invoice.branch_id,
+    v_invoice.member_id,
+    v_item.plan_id,
+    v_status,
+    v_start,
+    v_end,
+    v_item.unit_price,
+    coalesce(v_item.discount, 0),
+    greatest(v_item.unit_price - coalesce(v_item.discount, 0), 0),
+    'Created from invoice ' || v_invoice.invoice_number,
+    v_invoice.created_by,
+    now(),
+    now()
+  )
+  returning id into v_membership_id;
+
+  -- Link invoice to newly created membership
+  update public.invoices
+  set membership_id = v_membership_id
+  where id = p_invoice_id;
+
+  return v_membership_id;
+end;
+$$;
+
+revoke all on function public.sync_invoice_membership(uuid) from public, anon;
+grant execute on function public.sync_invoice_membership(uuid) to authenticated;
+
+-- 2. Link invoice to membership RPC with strict cross-member guards
+create or replace function public.link_invoice_membership(
+  p_invoice_id uuid,
+  p_membership_id uuid
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invoice public.invoices%rowtype;
+  v_membership public.memberships%rowtype;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_invoice from public.invoices where id = p_invoice_id for update;
+  if v_invoice.id is null then
+    raise exception 'invoice not found';
+  end if;
+
+  perform public.require_org_permission(v_invoice.organization_id, 'billing.create');
+
+  select * into v_membership from public.memberships where id = p_membership_id;
+  if v_membership.id is null or v_membership.organization_id <> v_invoice.organization_id then
+    raise exception 'membership not found';
+  end if;
+
+  -- Prevent linking an invoice to another Member's membership
+  if v_membership.member_id <> v_invoice.member_id then
+    raise exception 'cannot link invoice to a membership belonging to a different member';
+  end if;
+
+  -- Prevent linking across different branches when both are specified
+  if v_invoice.branch_id is not null and v_membership.branch_id is not null
+     and v_membership.branch_id <> v_invoice.branch_id then
+    raise exception 'cannot link invoice to a membership from a different branch';
+  end if;
+
+  -- Prevent overwriting an existing conflicting membership link
+  if v_invoice.membership_id is not null and v_invoice.membership_id <> p_membership_id then
+    raise exception 'invoice is already linked to membership %', v_invoice.membership_id;
+  end if;
+
+  update public.invoices
+  set membership_id = p_membership_id
+  where id = p_invoice_id;
+
+  -- If invoice is already settled, promote pending membership to active
+  if v_invoice.status = 'paid' and v_membership.status = 'pending' then
+    update public.memberships
+    set status = 'active',
+        updated_at = now()
+    where id = p_membership_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.link_invoice_membership(uuid, uuid) from public, anon;
+grant execute on function public.link_invoice_membership(uuid, uuid) to authenticated;
+
+-- 3. refresh_invoice_status internal helper
+-- Note: revoked from authenticated/anon/public to prevent direct unauthenticated invocation.
+create or replace function public.refresh_invoice_status(p_invoice_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invoice public.invoices%rowtype;
+  v_paid numeric;
+  v_credited numeric;
+  v_balance numeric;
+  v_status text;
+begin
+  select * into v_invoice from public.invoices where id = p_invoice_id;
+  if v_invoice.id is null or v_invoice.status in ('draft', 'void') then
+    return;
+  end if;
+
+  select coalesce(sum(amount), 0) into v_paid
+  from public.payments
+  where invoice_id = p_invoice_id;
+
+  select coalesce(sum(amount), 0) into v_credited
+  from public.credit_notes
+  where invoice_id = p_invoice_id and status = 'applied';
+
+  v_paid := public.round_money(v_paid);
+  v_credited := public.round_money(v_credited);
+  v_balance := public.round_money(v_invoice.total - v_paid - v_credited);
+
+  if v_balance <= 0 then
+    v_status := 'paid';
+  elsif v_paid > 0 then
+    v_status := 'partially_paid';
+  elsif v_invoice.due_date is not null and v_invoice.due_date < (timezone('utc', now()))::date then
+    v_status := 'overdue';
+  else
+    v_status := 'issued';
+  end if;
+
+  update public.invoices set
+    amount_paid = v_paid,
+    amount_credited = v_credited,
+    status = v_status
+  where id = p_invoice_id;
+
+  -- If linked membership exists, synchronize activation when invoice becomes fully settled ('paid')
+  if v_invoice.membership_id is not null then
+    if v_status = 'paid' then
+      update public.memberships
+      set status = 'active',
+          updated_at = now()
+      where id = v_invoice.membership_id
+        and status = 'pending';
+    end if;
+  else
+    -- If no membership linked yet, attempt idempotent sync if invoice contains plan items
+    perform public.sync_invoice_membership(p_invoice_id);
+  end if;
+end;
+$$;
+
+-- Preserve internal helper ACL: revoke from public, anon, authenticated
+revoke all on function public.refresh_invoice_status(uuid) from public, anon, authenticated;
+
+-- 4. issue_invoice RPC
+create or replace function public.issue_invoice(p_invoice_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_org_id uuid;
+  v_status text;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select organization_id, status into v_org_id, v_status
+  from public.invoices where id = p_invoice_id;
+  if v_org_id is null then
+    raise exception 'invoice not found';
+  end if;
+
+  perform public.require_org_permission(v_org_id, 'billing.create'::text);
+  if v_status is distinct from 'draft' then
+    raise exception 'only draft invoices can be issued';
+  end if;
+
+  update public.invoices set status = 'issued' where id = p_invoice_id;
+  perform public.refresh_invoice_status(p_invoice_id);
+  perform public.sync_invoice_membership(p_invoice_id);
+end;
+$$;
+
+revoke all on function public.issue_invoice(uuid) from public, anon;
+grant execute on function public.issue_invoice(uuid) to authenticated;
+
+-- 5. void_invoice RPC with safe linked membership cancellation
+create or replace function public.void_invoice(p_invoice_id uuid, p_reason text)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_invoice public.invoices%rowtype;
+  v_other_valid_invoices integer;
+begin
+  if auth.uid() is null then
+    raise exception 'not authenticated';
+  end if;
+
+  select * into v_invoice
+  from public.invoices where id = p_invoice_id for update;
+  if v_invoice.id is null then
+    raise exception 'invoice not found';
+  end if;
+
+  perform public.require_org_permission(v_invoice.organization_id, 'billing.void');
+  if v_invoice.status = 'void' then
+    raise exception 'invoice is already cancelled';
+  end if;
+  if v_invoice.status = 'paid' then
+    raise exception 'paid invoices cannot be cancelled; issue a credit note or refund';
+  end if;
+
+  update public.invoices set
+    status = 'void',
+    notes = case
+      when nullif(trim(p_reason), '') is null then notes
+      else coalesce(notes || E'\n', '') || 'Cancelled: ' || trim(p_reason)
+    end
+  where id = p_invoice_id;
+
+  -- Cancel linked membership only if no other valid invoices (issued, partially_paid, paid) exist for it
+  if v_invoice.membership_id is not null then
+    select count(*) into v_other_valid_invoices
+    from public.invoices
+    where membership_id = v_invoice.membership_id
+      and id <> p_invoice_id
+      and status in ('issued', 'partially_paid', 'paid');
+
+    if v_other_valid_invoices = 0 then
+      update public.memberships
+      set status = 'cancelled',
+          notes = coalesce(notes || E'\n', '') || 'Cancelled: linked invoice ' || v_invoice.invoice_number || ' was voided',
+          updated_at = now()
+      where id = v_invoice.membership_id
+        and status in ('pending', 'active');
+    end if;
+  end if;
+end;
+$$;
+
+revoke all on function public.void_invoice(uuid, text) from public, anon;
+grant execute on function public.void_invoice(uuid, text) to authenticated;

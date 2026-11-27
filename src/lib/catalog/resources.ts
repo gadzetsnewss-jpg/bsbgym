@@ -177,7 +177,7 @@ export const membershipPlanResource: ResourceConfig<MembershipPlanRow> = {
   billingHandoff: "assign",
   extraRowActions: (row) =>
     row.isActive
-      ? [{ label: "Assign to member", href: `/memberships/active/add?planId=${row.id}` }]
+      ? [{ label: "Create invoice with plan", href: `/billing/new-invoice?presetPlanId=${row.id}` }]
       : [],
 };
 

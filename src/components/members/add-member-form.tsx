@@ -708,16 +708,10 @@ export function AddMemberForm() {
                 enabled={successEnabled}
               />
               <NextAction
-                href={membershipHref}
-                label="Add Membership"
-                icon={BadgeCheck}
-                enabled={successEnabled && canAssignMembership}
-              />
-              <NextAction
                 href={invoiceHref}
-                label="Create Invoice"
+                label="Create Invoice & Membership"
                 icon={CreditCard}
-                enabled={successEnabled && canCreateInvoice}
+                enabled={successEnabled && (canCreateInvoice || canAssignMembership)}
               />
               <NextAction
                 href={trainerHref}

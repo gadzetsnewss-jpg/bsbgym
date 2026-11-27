@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { OperationsForm } from "@/components/operations/operations-screens";
+import { DietPlanBuilder } from "@/components/fitness/diet-plan-builder";
 
 export const metadata: Metadata = { title: "Edit diet plan" };
 
@@ -9,5 +9,5 @@ export default async function EditDietPlanPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <OperationsForm resource="diet_plans" mode="edit" id={id} />;
+  return <DietPlanBuilder mode="edit" id={id} />;
 }
