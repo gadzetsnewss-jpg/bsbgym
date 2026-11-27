@@ -164,12 +164,24 @@ export const resetLinkedLoginPasswordSchema = z
   .object({
     kind: z.enum(["trainer", "member"]),
     recordId: z.string().uuid(),
-    password: strongPasswordSchema,
-    confirmPassword: z.string(),
+    password: z.string().optional(),
+    confirmPassword: z.string().optional(),
   })
-  .refine((values) => values.password === values.confirmPassword, {
-    message: "Passwords do not match",
-    path: ["confirmPassword"],
+  .superRefine((values, ctx) => {
+    if (values.password === undefined && values.confirmPassword === undefined) return;
+    const parsed = strongPasswordSchema.safeParse(values.password);
+    if (!parsed.success) {
+      for (const issue of parsed.error.issues) {
+        ctx.addIssue({ ...issue, path: ["password"] });
+      }
+    }
+    if (values.password !== values.confirmPassword) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Passwords do not match",
+        path: ["confirmPassword"],
+      });
+    }
   });
 
 /* ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/server";
 import { isSupabaseConfigured } from "@/lib/env";
@@ -38,16 +39,26 @@ async function lookupEmail(
 ): Promise<Lookup> {
   if (portal === "member" || portal === "trainer") {
     if (!gymCode) return { email: null, error: false };
-    const byCode =
-      portal === "member"
-        ? await admin.rpc("auth_email_for_member_code", {
-            p_gym_code: gymCode,
-            p_code: identifier,
-          })
-        : await admin.rpc("auth_email_for_trainer_code", {
-            p_gym_code: gymCode,
-            p_code: identifier,
-          });
+    if (portal === "member") {
+      const byPhone = await (admin.rpc as any)("auth_email_for_gym_member_phone", {
+        p_gym_code: gymCode,
+        p_phone: identifier,
+      });
+      if (typeof byPhone.data === "string" && byPhone.data) {
+        return { email: byPhone.data, error: false };
+      }
+      // Fallback for member code lookup
+      const byCode = await admin.rpc("auth_email_for_member_code", {
+        p_gym_code: gymCode,
+        p_code: identifier,
+      });
+      if (byCode.error && byPhone.error) return { email: null, error: true };
+      return { email: byCode.data ?? null, error: false };
+    }
+    const byCode = await admin.rpc("auth_email_for_trainer_code", {
+      p_gym_code: gymCode,
+      p_code: identifier,
+    });
     if (byCode.error) return { email: null, error: true };
     return { email: byCode.data ?? null, error: false };
   }
@@ -136,84 +147,14 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to sign in right now.", requestId }, { status: 503 });
   }
 
-  // If member code has no provisioned user yet, verify registered phone number and auto-provision
-  if (!lookup.email && portal === "member" && gymCode) {
-    try {
-      const { data: orgData } = await admin
-        .from("organizations")
-        .select("id")
-        .eq("slug", gymCode)
-        .in("status", ["active", "trial"])
-        .maybeSingle();
-
-      if (orgData?.id) {
-        const { data: memberRecord } = await admin
-          .from("gym_members")
-          .select("id, organization_id, code, first_name, last_name, phone, user_id")
-          .eq("organization_id", orgData.id)
-          .ilike("code", identifier)
-          .maybeSingle();
-
-        if (memberRecord && typeof memberRecord.phone === "string") {
-          const enteredPhone = initialPasswordFromPhone(password);
-          const memberPhone = initialPasswordFromPhone(memberRecord.phone);
-          if (enteredPhone && memberPhone && enteredPhone === memberPhone) {
-            const usernames = loginUsernamesForRecord(memberRecord.code, memberRecord.id, "member");
-            const targetUsername =
-              usernames[0] || `mem-${memberRecord.code.toLowerCase().replace(/[^a-z0-9]/g, "")}`;
-            const targetEmail = toInternalAuthEmail(targetUsername);
-
-            const { data: createdUser, error: createError } = await admin.auth.admin.createUser({
-              email: targetEmail,
-              password: enteredPhone,
-              email_confirm: true,
-              user_metadata: {
-                first_name: memberRecord.first_name,
-                last_name: memberRecord.last_name,
-                contact_number: normalizeContactNumber(memberRecord.phone),
-                username: targetUsername,
-              },
-            });
-
-            if (!createError && createdUser?.user) {
-              await admin.rpc("provision_linked_login", {
-                p_kind: "member",
-                p_record_id: memberRecord.id,
-                p_user_id: createdUser.user.id,
-              });
-              lookup = { email: targetEmail, error: false };
-            }
-          }
-        }
-      }
-    } catch {
-      // Fall through to generic error
-    }
-  }
-
   if (!lookup.email) {
     return NextResponse.json({ error: failMessage }, { status: 401 });
   }
 
-  let { data, error } = await supabase.auth.signInWithPassword({
+  const { data, error } = await supabase.auth.signInWithPassword({
     email: lookup.email,
     password,
   });
-
-  // If initial password attempt fails for member, retry with normalized digits in case phone was formatted
-  if (error && portal === "member") {
-    const normalizedDigits = initialPasswordFromPhone(password);
-    if (normalizedDigits && normalizedDigits !== password) {
-      const retry = await supabase.auth.signInWithPassword({
-        email: lookup.email,
-        password: normalizedDigits,
-      });
-      if (!retry.error && retry.data?.user) {
-        data = retry.data;
-        error = null;
-      }
-    }
-  }
 
   if (error || !data.user) {
     if (error && /email not confirmed/i.test(error.message)) {
@@ -236,6 +177,15 @@ export async function POST(request: Request) {
       await supabase.auth.signOut();
       return NextResponse.json({ error: failMessage }, { status: 401 });
     }
+  }
+
+  if (portal) {
+    const cookieStore = await cookies();
+    cookieStore.set("bsb_portal", portal, {
+      path: "/",
+      maxAge: 86400,
+      sameSite: "lax",
+    });
   }
 
   return NextResponse.json({ ok: true });

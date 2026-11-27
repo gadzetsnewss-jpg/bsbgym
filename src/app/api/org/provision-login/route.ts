@@ -6,6 +6,7 @@ import { getSupabaseServiceRoleKey } from "@/lib/server-env";
 import { resolveAppContext } from "@/lib/auth/server";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
 import {
+  initialMemberTemporaryPassword,
   initialPasswordFromPhone,
   isAuthCreateCollision,
   loginUsernamesForRecord,
@@ -196,9 +197,9 @@ export async function POST(request: Request) {
           .select("id, organization_id, code, first_name, last_name, phone, user_id")
           .eq("id", recordId)
           .maybeSingle()
-      : await supabase
+       : await supabase
           .from("gym_members")
-          .select("id, organization_id, code, first_name, last_name, phone, user_id")
+          .select("id, organization_id, code, first_name, last_name, phone, date_of_birth, user_id")
           .eq("id", recordId)
           .maybeSingle();
 
@@ -233,15 +234,28 @@ export async function POST(request: Request) {
 
   const phone = typeof record.phone === "string" ? record.phone : "";
   const ownerSetPassword = Boolean(parsed.data.password);
-  const password = ownerSetPassword ? parsed.data.password! : initialPasswordFromPhone(phone);
+  let password = ownerSetPassword ? parsed.data.password! : null;
   if (!password) {
-    return jsonError(
-      400,
-      ownerSetPassword
-        ? "Please check your details and try again."
-        : "A registered mobile number is required to create a login.",
-      requestId,
-    );
+    if (kind === "member") {
+      const dob = "date_of_birth" in record ? (record.date_of_birth as string | null) : null;
+      password = initialMemberTemporaryPassword(phone, dob);
+      if (!password) {
+        return jsonError(
+          400,
+          "A valid 10-digit registered mobile number and date of birth are required to create a member login.",
+          requestId,
+        );
+      }
+    } else {
+      password = initialPasswordFromPhone(phone);
+      if (!password) {
+        return jsonError(
+          400,
+          "A registered mobile number is required to create a login.",
+          requestId,
+        );
+      }
+    }
   }
 
   const firstName = typeof record.first_name === "string" ? record.first_name : "";
@@ -418,7 +432,7 @@ export async function POST(request: Request) {
     return jsonError(503, LOGIN_CREATED_NOT_LINKED, requestId);
   }
 
-  if (ownerSetPassword) {
+  if (ownerSetPassword && kind !== "member") {
     const { error: flagError } = await admin.rpc("complete_password_change", {
       p_user_id: targetUserId,
     });
@@ -427,6 +441,16 @@ export async function POST(request: Request) {
     }
   }
 
+  const returnedLoginId =
+    kind === "member"
+      ? (normalizeContactNumber(phone)?.replace("+91", "") ?? phone)
+      : code.toUpperCase();
+
   logProvision({ requestId, stage: "done", status: 200, kind, reused: reusedExisting });
-  return NextResponse.json({ ok: true, loginId: code.toUpperCase(), requestId });
+  return NextResponse.json({
+    ok: true,
+    loginId: returnedLoginId,
+    memberCode: code.toUpperCase(),
+    requestId,
+  });
 }

@@ -395,6 +395,8 @@ export function MemberDetail({ memberId }: MemberDetailProps) {
                   memberId={member.id}
                   memberName={member.fullName}
                   memberCode={member.code}
+                  phone={member.phone}
+                  dateOfBirth={member.dateOfBirth}
                   linkedUserId={member.userId}
                   onChanged={() => void load()}
                 />

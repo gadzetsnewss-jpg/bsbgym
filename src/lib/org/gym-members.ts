@@ -898,14 +898,18 @@ export async function provisionLinkedLogin(
 export async function resetLinkedLoginPassword(
   kind: "trainer" | "member",
   recordId: string,
-  password: string,
-  confirmPassword: string,
+  password?: string,
+  confirmPassword?: string,
 ): Promise<OrgResult> {
   try {
     const response = await fetch("/api/org/reset-login-password", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ kind, recordId, password, confirmPassword }),
+      body: JSON.stringify({
+        kind,
+        recordId,
+        ...(password ? { password, confirmPassword } : {}),
+      }),
     });
     const payload = (await response.json()) as { ok?: boolean; error?: string };
     if (!response.ok || !payload.ok) {

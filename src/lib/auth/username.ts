@@ -102,6 +102,38 @@ export function initialPasswordFromPhone(phone: string): string | null {
   return null;
 }
 
+export function initialMemberTemporaryPassword(
+  phone: string | null | undefined,
+  dob: string | Date | null | undefined,
+): string | null {
+  if (!phone || !dob) return null;
+  const digits = phone.replace(/\D/g, "");
+  let national = digits;
+  if (digits.startsWith("91") && digits.length === 12) {
+    national = digits.slice(2);
+  }
+  if (national.length !== 10) return null;
+  const last4 = national.slice(-4);
+
+  let year: number | null = null;
+  if (dob instanceof Date) {
+    year = dob.getUTCFullYear();
+  } else if (typeof dob === "string") {
+    const trimmed = dob.trim();
+    const match = trimmed.match(/^(\d{4})/);
+    if (match) {
+      year = parseInt(match[1], 10);
+    } else {
+      const parsed = new Date(trimmed);
+      if (!isNaN(parsed.getTime())) {
+        year = parsed.getUTCFullYear();
+      }
+    }
+  }
+  if (!year || year < 1900 || year > 2100) return null;
+  return `${last4}${year}`;
+}
+
 export function loginUsernameFromCode(code: string): string {
   const compact = normalizeUsername(code)
     .replace(/[^a-z0-9]+/g, "-")

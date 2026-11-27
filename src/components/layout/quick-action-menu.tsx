@@ -46,6 +46,14 @@ const TRAINER_QUICK_ACTIONS = [
   { label: "My Members", href: "/members", icon: Users },
 ];
 
+const MEMBER_QUICK_ACTIONS = [
+  { label: "Digital Pass & QR", href: "/dashboard", icon: Target },
+  { label: "My Workouts", href: "/fitness/workout-plans", icon: Dumbbell },
+  { label: "My Diet Plan", href: "/fitness/diet-plans", icon: Salad },
+  { label: "Book PT Session", href: "/trainers/pt-sessions", icon: CalendarCheck },
+  { label: "Check-in History", href: "/attendance", icon: CalendarCheck },
+];
+
 export function QuickActionMenu({ className }: { className?: string }) {
   const { can, context, hasRole } = useOrganization();
   const [cookiePortal, setCookiePortal] = React.useState<string | null>(null);
@@ -58,19 +66,22 @@ export function QuickActionMenu({ className }: { className?: string }) {
   }, []);
 
   const isTrainer = hasRole(["trainer"]) || cookiePortal === "trainer";
+  const isMember = hasRole(["member"]) || cookiePortal === "member";
 
   const items = isTrainer
     ? TRAINER_QUICK_ACTIONS
-    : QUICK_ACTIONS.filter(
-        (action) =>
-          context === null ||
-          !QUICK_ACTION_PERMISSIONS[action.id] ||
-          can(QUICK_ACTION_PERMISSIONS[action.id]),
-      ).map((action) => ({
-        label: action.label,
-        icon: QUICK_ACTION_ICONS[action.id] ?? FilePlus,
-        href: action.href,
-      }));
+    : isMember
+      ? MEMBER_QUICK_ACTIONS
+      : QUICK_ACTIONS.filter(
+          (action) =>
+            context === null ||
+            !QUICK_ACTION_PERMISSIONS[action.id] ||
+            can(QUICK_ACTION_PERMISSIONS[action.id]),
+        ).map((action) => ({
+          label: action.label,
+          icon: QUICK_ACTION_ICONS[action.id] ?? FilePlus,
+          href: action.href,
+        }));
 
   return (
     <Dropdown

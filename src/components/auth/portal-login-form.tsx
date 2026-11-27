@@ -40,12 +40,13 @@ const COPY: Record<
   },
   member: {
     title: "Member sign in",
-    description: "Enter your gym code, member code and registered phone number.",
-    idLabel: "Member Code",
-    idPlaceholder: "MEM-0001",
-    credentialLabel: "Registered Phone Number",
-    credentialPlaceholder: "e.g. 9876543210",
-    credentialHint: "Enter the 10-digit mobile number registered with your gym profile.",
+    description: "Enter your gym code, registered mobile number and password.",
+    idLabel: "Registered Mobile Number",
+    idPlaceholder: "e.g. 9876543210",
+    credentialLabel: "Password",
+    credentialPlaceholder: "Enter your password",
+    credentialHint:
+      "First-time sign in? Use the temporary password given by your gym (last 4 digits of phone + birth year). You will set your new password immediately.",
   },
 };
 
@@ -155,7 +156,7 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
 
         <FormField label={copy.idLabel} required error={errors.id}>
           <Input
-            autoComplete="username"
+            autoComplete={portal === "member" ? "tel" : "username"}
             placeholder={copy.idPlaceholder}
             invalid={Boolean(errors.id)}
             value={values.id}
@@ -180,7 +181,7 @@ export function PortalLoginForm({ portal }: { portal: PortalRole }) {
           </div>
           <PasswordInput
             id="password"
-            autoComplete={portal === "member" ? "tel" : "current-password"}
+            autoComplete="current-password"
             placeholder={copy.credentialPlaceholder ?? "Enter your password"}
             invalid={Boolean(errors.password)}
             value={values.password}

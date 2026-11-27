@@ -30,13 +30,8 @@ export function DashboardHome() {
     return <TrainerHome />;
   }
 
-  if (hasRole(["member"])) {
-    return (
-      <div className="space-y-6">
-        <GreetingBanner />
-        <MemberHome />
-      </div>
-    );
+  if (hasRole(["member"]) || cookiePortal === "member") {
+    return <MemberHome />;
   }
 
   return (

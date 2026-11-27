@@ -669,12 +669,83 @@ export const TRAINER_NAV_SECTION: NavSection = {
   items: TRAINER_NAV_ITEMS,
 };
 
+/** Approved exact 10 items for the Member Portal navigation in strict order. */
+export const MEMBER_NAV_ITEMS: NavItem[] = [
+  {
+    title: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    description: "Your digital membership card, check-in pass and today's activity.",
+  },
+  {
+    title: "My Membership",
+    href: "/memberships/active",
+    icon: CreditCard,
+    description: "Active plan details, validity, freeze status and renewals.",
+  },
+  {
+    title: "My Workouts",
+    href: "/fitness/workout-plans",
+    icon: Dumbbell,
+    description: "Your personal workout routines and exercise programs.",
+  },
+  {
+    title: "My Diet Plan",
+    href: "/fitness/diet-plans",
+    icon: Salad,
+    description: "Assigned nutrition plans and daily dietary guidelines.",
+  },
+  {
+    title: "My Trainer",
+    href: "/trainers",
+    icon: UserRound,
+    description: "Your assigned personal trainer profile and contact.",
+  },
+  {
+    title: "Attendance",
+    href: "/attendance",
+    icon: CalendarCheck,
+    description: "Your gym visit check-in history and streak.",
+  },
+  {
+    title: "PT Sessions",
+    href: "/trainers/pt-sessions",
+    icon: ClipboardList,
+    description: "Personal training sessions with your trainer.",
+  },
+  {
+    title: "Progress & Measurements",
+    href: "/fitness/progress",
+    icon: TrendingUp,
+    description: "Weight, body measurements and transformation logs.",
+  },
+  {
+    title: "Notifications",
+    href: "/notifications",
+    icon: Bell,
+    description: "Alerts, renewals and announcements from your gym.",
+  },
+  {
+    title: "My Profile",
+    href: "/settings/profile",
+    icon: UserCheck,
+    description: "Your contact details, emergency info and password.",
+  },
+];
+
+export const MEMBER_NAV_SECTION: NavSection = {
+  id: "member_portal",
+  title: "Member Portal",
+  items: MEMBER_NAV_ITEMS,
+};
+
 /** Flat index of every nav item for search / breadcrumbs / page titles. */
 export const FLAT_NAV_ITEMS: FlatNavItem[] = [
   ...NAV_SECTIONS.flatMap((section) =>
     section.items.map((item) => ({ ...item, sectionTitle: section.title })),
   ),
   ...TRAINER_NAV_ITEMS.map((item) => ({ ...item, sectionTitle: "Trainer Portal" })),
+  ...MEMBER_NAV_ITEMS.map((item) => ({ ...item, sectionTitle: "Member Portal" })),
 ];
 
 /** Lookup by href (exact match). */

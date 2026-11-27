@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ChevronsLeft, ChevronsRight, Sparkles, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NAV_SECTIONS, TRAINER_NAV_SECTION } from "@/config/navigation";
+import { NAV_SECTIONS, TRAINER_NAV_SECTION, MEMBER_NAV_SECTION } from "@/config/navigation";
 import { useSidebar } from "@/hooks/use-sidebar";
 import { Logo } from "@/components/layout/logo";
 import { DecorativeIcon } from "@/components/ui/decorative-icon";
@@ -84,21 +84,27 @@ function SidebarNav({ collapsed, pathname, onNavigate }: SidebarNavProps) {
   }, []);
 
   const isTrainer = hasRole(["trainer"]) || cookiePortal === "trainer";
+  const isMember = hasRole(["member"]) || cookiePortal === "member";
 
-  // Permission-aware navigation: Trainers see ONLY the eight approved Trainer Portal
-  // items in exact order. For Owner/Admin/Staff, items are gated by role permissions.
+  // Permission-aware navigation:
+  // - Trainers see ONLY the eight approved Trainer Portal items in exact order.
+  // - Members see ONLY the ten approved Member Portal items in exact order.
+  // - For Owner/Admin/Staff, items are gated by role permissions.
   const sections = React.useMemo<NavSection[]>(() => {
     if (isTrainer) {
       return [TRAINER_NAV_SECTION];
     }
-    const preview = context === null && cookiePortal !== "trainer";
+    if (isMember) {
+      return [MEMBER_NAV_SECTION];
+    }
+    const preview = context === null && cookiePortal !== "trainer" && cookiePortal !== "member";
     return NAV_SECTIONS.map((section) => ({
       ...section,
       items: section.items.filter(
         (item) => preview || !item.permission || can(item.permission),
       ),
     })).filter((section) => section.items.length > 0);
-  }, [can, context, isTrainer, cookiePortal]);
+  }, [can, context, isTrainer, isMember, cookiePortal]);
 
   return (
     <nav aria-label="Main navigation" className="flex-1 overflow-y-auto px-3 pb-4">
@@ -134,7 +140,15 @@ function SidebarNav({ collapsed, pathname, onNavigate }: SidebarNavProps) {
   );
 }
 
-function SidebarFooter({ collapsed, isTrainer }: { collapsed: boolean; isTrainer?: boolean }) {
+function SidebarFooter({
+  collapsed,
+  isTrainer,
+  isMember,
+}: {
+  collapsed: boolean;
+  isTrainer?: boolean;
+  isMember?: boolean;
+}) {
   if (isTrainer) {
     return (
       <div className="border-t border-white/10 p-3">
@@ -149,6 +163,28 @@ function SidebarFooter({ collapsed, isTrainer }: { collapsed: boolean; isTrainer
           <div
             title="Trainer Portal"
             className="flex size-9 items-center justify-center rounded-lg bg-white/5 text-primary-300"
+          >
+            <Sparkles aria-hidden="true" className="size-4" />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (isMember) {
+    return (
+      <div className="border-t border-white/10 p-3">
+        {!collapsed ? (
+          <div className="rounded-lg bg-white/5 p-2.5 text-center">
+            <p className="text-xs font-semibold text-white">Member Access</p>
+            <p className="mt-0.5 text-[11px] text-teal-200/70">
+              Workouts, Diet & Attendance
+            </p>
+          </div>
+        ) : (
+          <div
+            title="Member Portal"
+            className="flex size-9 items-center justify-center rounded-lg bg-white/5 text-teal-300"
           >
             <Sparkles aria-hidden="true" className="size-4" />
           </div>
@@ -195,10 +231,11 @@ export function Sidebar() {
   }, []);
 
   const isTrainer = hasRole(["trainer"]) || cookiePortal === "trainer";
-  const trainerName =
+  const isMember = hasRole(["member"]) || cookiePortal === "member";
+  const userName =
     [profile?.firstName, profile?.lastName].filter(Boolean).join(" ").trim() ||
     profile?.username ||
-    "Trainer";
+    (isTrainer ? "Trainer" : isMember ? "Member" : "User");
 
   return (
     <>
@@ -221,16 +258,26 @@ export function Sidebar() {
           {isTrainer && !collapsed && (
             <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5">
               <span className="truncate text-[11px] font-medium text-primary-200">
-                Trainer Portal · {trainerName}
+                Trainer Portal · {userName}
               </span>
               <span className="w-fit rounded bg-primary-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary-300">
                 Role: Trainer
               </span>
             </div>
           )}
+          {isMember && !collapsed && (
+            <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5">
+              <span className="truncate text-[11px] font-medium text-primary-200">
+                Member Portal · {userName}
+              </span>
+              <span className="w-fit rounded bg-teal-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-teal-300">
+                Role: Member
+              </span>
+            </div>
+          )}
         </div>
         <SidebarNav collapsed={collapsed} pathname={pathname} />
-        <SidebarFooter collapsed={collapsed} isTrainer={isTrainer} />
+        <SidebarFooter collapsed={collapsed} isTrainer={isTrainer} isMember={isMember} />
         <button
           type="button"
           onClick={toggleCollapsed}
@@ -269,16 +316,26 @@ export function Sidebar() {
               {isTrainer && (
                 <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5">
                   <span className="truncate text-[11px] font-medium text-primary-200">
-                    Trainer Portal · {trainerName}
+                    Trainer Portal · {userName}
                   </span>
                   <span className="w-fit rounded bg-primary-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-primary-300">
                     Role: Trainer
                   </span>
                 </div>
               )}
+              {isMember && (
+                <div className="mt-2 flex flex-col gap-0.5 rounded-md border border-white/10 bg-white/5 px-2.5 py-1.5">
+                  <span className="truncate text-[11px] font-medium text-primary-200">
+                    Member Portal · {userName}
+                  </span>
+                  <span className="w-fit rounded bg-teal-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-teal-300">
+                    Role: Member
+                  </span>
+                </div>
+              )}
             </div>
             <SidebarNav collapsed={false} pathname={pathname} onNavigate={closeMobile} />
-            <SidebarFooter collapsed={false} isTrainer={isTrainer} />
+            <SidebarFooter collapsed={false} isTrainer={isTrainer} isMember={isMember} />
           </aside>
         </div>
       )}

@@ -68,25 +68,32 @@ export function TrainerLoginLinkPanel({
   );
 }
 
+import { MemberLoginPanel } from "@/components/members/member-login-panel";
+
 export function MemberLoginLinkPanel({
   memberId,
   memberName,
   memberCode,
+  phone,
+  dateOfBirth,
   linkedUserId,
   onChanged,
 }: {
   memberId: string;
   memberName: string;
   memberCode: string | null;
+  phone?: string | null;
+  dateOfBirth?: string | null;
   linkedUserId: string | null;
   onChanged?: () => void;
 }) {
   return (
-    <LoginLinkPanel
-      kind="member"
-      recordId={memberId}
-      displayName={memberName}
-      loginId={memberCode}
+    <MemberLoginPanel
+      memberId={memberId}
+      memberName={memberName}
+      memberCode={memberCode}
+      phone={phone}
+      dateOfBirth={dateOfBirth}
       linkedUserId={linkedUserId}
       onChanged={onChanged}
     />

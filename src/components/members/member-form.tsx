@@ -481,6 +481,8 @@ export function MemberForm({ mode, memberId }: MemberFormProps) {
           memberId={memberId}
           memberName={memberFullName || `${values.firstName} ${values.lastName}`.trim()}
           memberCode={memberCode}
+          phone={values.phone}
+          dateOfBirth={values.dateOfBirth}
           linkedUserId={linkedUserId}
           onChanged={() => {
             if (!orgId || !memberId) return;

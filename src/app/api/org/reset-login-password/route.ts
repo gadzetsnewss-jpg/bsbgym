@@ -3,6 +3,7 @@ import { createServerSupabase, createServerSupabaseAdmin } from "@/lib/supabase/
 import { isSupabaseConfigured } from "@/lib/env";
 import { resolveAppContext } from "@/lib/auth/server";
 import { hasPermission, PERMISSIONS } from "@/lib/auth/permissions";
+import { initialMemberTemporaryPassword } from "@/lib/auth/username";
 import { friendlyMessage } from "@/lib/errors";
 import { resetLinkedLoginPasswordSchema } from "@/lib/validation/auth-schemas";
 
@@ -45,17 +46,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unable to update password right now." }, { status: 503 });
   }
 
-  const { kind, recordId, password } = parsed.data;
+  const { kind, recordId } = parsed.data;
   const recordResult =
     kind === "trainer"
       ? await supabase
           .from("trainers")
-          .select("id, user_id")
+          .select("id, user_id, phone")
           .eq("id", recordId)
           .maybeSingle()
       : await supabase
           .from("gym_members")
-          .select("id, user_id")
+          .select("id, user_id, phone, date_of_birth")
           .eq("id", recordId)
           .maybeSingle();
 
@@ -80,16 +81,35 @@ export async function POST(request: Request) {
     );
   }
 
+  let finalPassword = parsed.data.password;
+  if (!finalPassword) {
+    if (kind === "member") {
+      const member = recordResult.data as { phone?: string | null; date_of_birth?: string | null };
+      finalPassword = initialMemberTemporaryPassword(member.phone, member.date_of_birth) ?? undefined;
+      if (!finalPassword) {
+        return NextResponse.json(
+          { error: "A valid registered mobile number and date of birth are required to reset the password." },
+          { status: 400 },
+        );
+      }
+    } else {
+      return NextResponse.json({ error: "Password is required." }, { status: 400 });
+    }
+  }
+
   const { error: updateError } = await admin.auth.admin.updateUserById(linkedUserId, {
-    password,
+    password: finalPassword,
   });
   if (updateError) {
     return NextResponse.json({ error: "Unable to update password right now." }, { status: 400 });
   }
 
-  const { error: flagError } = await admin.rpc("complete_password_change", {
-    p_user_id: linkedUserId,
-  });
+  const { error: flagError } = await (admin.rpc as any)(
+    kind === "member" ? "require_password_change" : "complete_password_change",
+    {
+      p_user_id: linkedUserId,
+    },
+  );
   if (flagError) {
     return NextResponse.json({ error: "Unable to update password right now." }, { status: 503 });
   }
