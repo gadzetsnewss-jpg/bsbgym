@@ -962,6 +962,26 @@ export interface Database {
         created_by: string | null;
         created_at: string;
       }>;
+      staff_attendance_records: ModuleTable<{
+        id: string;
+        organization_id: string;
+        branch_id: string;
+        user_id: string;
+        org_member_id: string | null;
+        trainer_id: string | null;
+        check_in_at: string;
+        check_out_at: string | null;
+        status: "present" | "late" | "half_day" | "absent" | "on_leave";
+        method: "web" | "qr" | "manual" | "biometric" | "app";
+        working_hours: number | null;
+        notes: string | null;
+        correction_reason: string | null;
+        corrected_by: string | null;
+        corrected_at: string | null;
+        device_metadata: Record<string, unknown>;
+        created_at: string;
+        updated_at: string;
+      }>;
       trainer_assignments: ModuleTable<{
         id: string;
         organization_id: string;
@@ -2175,6 +2195,88 @@ export interface Database {
           p_notes: string | null;
         };
         Returns: void;
+      };
+      check_out_member_attendance: {
+        Args: {
+          p_org_id: string;
+          p_record_id: string;
+          p_check_out_at?: string | null;
+          p_notes?: string | null;
+        };
+        Returns: void;
+      };
+      staff_clock_in: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_method?: string | null;
+          p_notes?: string | null;
+          p_device_metadata?: Record<string, unknown>;
+        };
+        Returns: string;
+      };
+      staff_clock_out: {
+        Args: {
+          p_org_id: string;
+          p_record_id?: string | null;
+          p_notes?: string | null;
+          p_device_metadata?: Record<string, unknown>;
+        };
+        Returns: void;
+      };
+      correct_staff_attendance: {
+        Args: {
+          p_org_id: string;
+          p_record_id: string;
+          p_check_in_at: string;
+          p_check_out_at: string | null;
+          p_status: string;
+          p_reason: string;
+          p_notes?: string | null;
+        };
+        Returns: void;
+      };
+      admin_record_staff_attendance: {
+        Args: {
+          p_org_id: string;
+          p_branch_id: string;
+          p_user_id: string;
+          p_check_in_at: string;
+          p_check_out_at?: string | null;
+          p_status?: string | null;
+          p_notes?: string | null;
+          p_reason?: string | null;
+        };
+        Returns: string;
+      };
+      get_daily_attendance_summary: {
+        Args: {
+          p_org_id: string;
+          p_branch_id?: string | null;
+          p_date?: string | null;
+        };
+        Returns: {
+          date: string;
+          members_today: number;
+          members_currently_in_gym: number;
+          staff_today: number;
+          staff_on_duty: number;
+          staff_total_hours: number;
+        };
+      };
+      get_member_attendance_stats: {
+        Args: {
+          p_org_id: string;
+          p_member_id?: string | null;
+        };
+        Returns: {
+          total_visits: number;
+          month_visits: number;
+          month_days_present: number;
+          current_streak: number;
+          attendance_percentage: number;
+          days_in_month: number;
+        };
       };
       create_trainer_assignment: {
         Args: {

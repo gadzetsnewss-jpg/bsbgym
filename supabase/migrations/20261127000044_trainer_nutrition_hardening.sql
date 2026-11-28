@@ -613,7 +613,7 @@ $$;
 revoke all on function public.clone_diet_plan_to_draft(uuid) from public, anon;
 grant execute on function public.clone_diet_plan_to_draft(uuid) to authenticated;
 
--- 5. Hardened RPC: publish_diet_plan (Strict atomic validation and publish with Member-level lock)
+-- 5. Hardened RPC: publish_diet_plan (Strict atomic validation and publish with Member-level lock & Reassignment Guard)
 create or replace function public.publish_diet_plan(p_plan_id uuid)
 returns void
 language plpgsql
@@ -624,6 +624,8 @@ declare
   v_plan public.diet_plans%rowtype;
   v_role text;
   v_trainer_id uuid;
+  v_orig_org_id uuid;
+  v_orig_member_id uuid;
 begin
   if auth.uid() is null then
     raise exception 'not authenticated';
@@ -633,30 +635,45 @@ begin
     raise exception 'plan_id is required';
   end if;
 
-  -- 1. Initial retrieval of target plan to identify member and organization
+  -- 1. Initial SELECT of the target diet_plans row with FOR UPDATE so it cannot be reassigned while publishing
   select * into v_plan
   from public.diet_plans
-  where id = p_plan_id;
+  where id = p_plan_id
+  for update;
 
   if v_plan.id is null then
     raise exception 'plan not found';
   end if;
 
-  -- 2. SERIALIZE PUBLISHING PER MEMBER:
-  -- Lock the member row in gym_members with FOR UPDATE.
-  -- This prevents concurrent publish requests for different Draft plans of the same Member
-  -- from racing and creating multiple active plans.
+  -- 2. Capture its original organization_id and member_id
+  v_orig_org_id := v_plan.organization_id;
+  v_orig_member_id := v_plan.member_id;
+
+  -- 3. Lock the corresponding gym_members row using FOR UPDATE to serialize publishing per member
+  -- 4. Verify the member row exists
   perform 1
   from public.gym_members
-  where id = v_plan.member_id
-    and organization_id = v_plan.organization_id
+  where id = v_orig_member_id
+    and organization_id = v_orig_org_id
   for update;
 
-  -- 3. Lock target plan row and re-read state after acquiring Member lock
+  if not found then
+    raise exception 'member not found';
+  end if;
+
+  -- 5. Re-read the target plan and explicitly verify organization_id and member_id still equal the captured original values
   select * into v_plan
   from public.diet_plans
   where id = p_plan_id
   for update;
+
+  if v_plan.id is null then
+    raise exception 'plan not found';
+  end if;
+
+  if v_plan.organization_id is distinct from v_orig_org_id or v_plan.member_id is distinct from v_orig_member_id then
+    raise exception 'plan reassignment detected during publish; aborting';
+  end if;
 
   -- 4. Verify authorization and current active Trainer assignment FIRST
   v_role := public.current_org_role_slug(v_plan.organization_id);

@@ -208,6 +208,11 @@ export function ProfileForm() {
                 </p>
               </div>
             )}
+            <div className="sm:col-span-2 pt-2">
+              <ButtonLink href="/attendance" variant="outline" size="sm">
+                View My Attendance & Shift Clock
+              </ButtonLink>
+            </div>
           </div>
         </FormSection>
       )}

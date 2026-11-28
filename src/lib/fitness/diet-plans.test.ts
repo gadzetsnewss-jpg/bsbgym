@@ -553,24 +553,119 @@ describe("Migration 00044 Hardening & Security Guarantees", () => {
   });
 
   describe("10. Concurrency Hardening & Member-Level Serialization (Publish & Clone)", () => {
-    it("serializes publish_diet_plan per Member by locking the gym_members row with FOR UPDATE", () => {
+    it("locks target diet_plans row FOR UPDATE initially and captures original org and member IDs", () => {
       expect(hardeningSql).toContain(
-        "perform 1\n  from public.gym_members\n  where id = v_plan.member_id\n    and organization_id = v_plan.organization_id\n  for update;",
+        "select * into v_plan\n  from public.diet_plans\n  where id = p_plan_id\n  for update;",
       );
-      // Ensures the member lock precedes the target plan lock and validations
-      const memberLockIdx = hardeningSql.indexOf("from public.gym_members\n  where id = v_plan.member_id");
-      const targetLockIdx = hardeningSql.indexOf("select * into v_plan\n  from public.diet_plans\n  where id = p_plan_id\n  for update;");
+      expect(hardeningSql).toContain("v_orig_org_id := v_plan.organization_id;");
+      expect(hardeningSql).toContain("v_orig_member_id := v_plan.member_id;");
+    });
+
+    it("serializes publish_diet_plan per Member by locking the gym_members row with FOR UPDATE and verifying existence", () => {
+      expect(hardeningSql).toContain(
+        "perform 1\n  from public.gym_members\n  where id = v_orig_member_id\n    and organization_id = v_orig_org_id\n  for update;",
+      );
+      expect(hardeningSql).toContain("if not found then\n    raise exception 'member not found';");
+      // Ensures the initial plan lock precedes member lock, which precedes re-reading and archive
+      const initialPlanLockIdx = hardeningSql.indexOf(
+        "select * into v_plan\n  from public.diet_plans\n  where id = p_plan_id\n  for update;",
+      );
+      const memberLockIdx = hardeningSql.indexOf("from public.gym_members\n  where id = v_orig_member_id");
+      const rereadPlanLockIdx = hardeningSql.indexOf(
+        "select * into v_plan\n  from public.diet_plans\n  where id = p_plan_id\n  for update;",
+        memberLockIdx,
+      );
       const archiveIdx = hardeningSql.indexOf("update public.diet_plans\n  set status = 'completed'");
 
-      expect(memberLockIdx).toBeGreaterThan(0);
-      expect(targetLockIdx).toBeGreaterThan(memberLockIdx);
-      expect(archiveIdx).toBeGreaterThan(targetLockIdx);
+      expect(initialPlanLockIdx).toBeGreaterThan(0);
+      expect(memberLockIdx).toBeGreaterThan(initialPlanLockIdx);
+      expect(rereadPlanLockIdx).toBeGreaterThan(memberLockIdx);
+      expect(archiveIdx).toBeGreaterThan(rereadPlanLockIdx);
+    });
+
+    it("detects and aborts if organization_id or member_id differs after acquiring locks", () => {
+      expect(hardeningSql).toContain(
+        "if v_plan.organization_id is distinct from v_orig_org_id or v_plan.member_id is distinct from v_orig_member_id then\n    raise exception 'plan reassignment detected during publish; aborting';",
+      );
     });
 
     it("restricts clone_diet_plan_to_draft strictly to Active and Completed plans", () => {
       expect(hardeningSql).toContain(
         "if v_source.status not in ('active', 'completed') then\n    raise exception 'only active or completed diet plans can be cloned to draft';",
       );
+    });
+
+    it("regression test: concurrent reassignment during publish triggers abort without modifying plan or archiving previous active", async () => {
+      interface PlanRow {
+        id: string;
+        orgId: string;
+        memberId: string;
+        status: "draft" | "active" | "completed";
+      }
+
+      const databaseState: PlanRow[] = [
+        { id: "active-plan", orgId: "org-1", memberId: "member-1", status: "active" },
+        { id: "draft-plan", orgId: "org-1", memberId: "member-1", status: "draft" },
+      ];
+
+      // Mutex simulating database row locks
+      let planLocked = false;
+      let memberLocked = false;
+
+      const publishWithReassignmentCheck = async (planId: string, simulateConcurrentReassignment: boolean) => {
+        // Step 1: Initial SELECT ... FOR UPDATE on target plan
+        while (planLocked) await new Promise((r) => setTimeout(r, 5));
+        planLocked = true;
+
+        const plan = databaseState.find((p) => p.id === planId);
+        if (!plan) {
+          planLocked = false;
+          throw new Error("plan not found");
+        }
+
+        // Step 2: Capture original org and member
+        const origOrgId = plan.orgId;
+        const origMemberId = plan.memberId;
+
+        // Step 3: Lock gym_members FOR UPDATE
+        while (memberLocked) await new Promise((r) => setTimeout(r, 5));
+        memberLocked = true;
+
+        try {
+          // If concurrent reassignment somehow intervened before lock acquisition
+          if (simulateConcurrentReassignment) {
+            plan.memberId = "member-2"; // reassigned!
+          }
+
+          // Step 5: Re-read target plan and verify equality
+          if (plan.orgId !== origOrgId || plan.memberId !== origMemberId) {
+            throw new Error("plan reassignment detected during publish; aborting");
+          }
+
+          // Step 6: Validation & Activation
+          for (const p of databaseState) {
+            if (p.memberId === plan.memberId && p.status === "active" && p.id !== plan.id) {
+              p.status = "completed";
+            }
+          }
+          plan.status = "active";
+          return plan;
+        } finally {
+          memberLocked = false;
+          planLocked = false;
+        }
+      };
+
+      // Publishing with concurrent reassignment must abort
+      await expect(publishWithReassignmentCheck("draft-plan", true)).rejects.toThrow(
+        "plan reassignment detected during publish; aborting",
+      );
+
+      // Verify database state: draft-plan did NOT become active, active-plan was NOT archived
+      const draft = databaseState.find((p) => p.id === "draft-plan");
+      const active = databaseState.find((p) => p.id === "active-plan");
+      expect(draft?.status).toBe("draft");
+      expect(active?.status).toBe("active");
     });
 
     it("simulates two concurrent publish attempts for different Drafts of the same Member, ensuring exactly one Active plan remains", () => {
